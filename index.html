@@ -9,7 +9,6 @@
 <style>
   :root {
     --ink: #111827; --ink-soft: #4b5563; --bg-app: #f9fafb; --bg-panel: #ffffff;
-    /* 加深框線顏色，提升對比度 */
     --border: #d1d5db; --border-soft: #e5e7eb; 
     --accent: #2563eb; --accent-hover: #1d4ed8;
     --accent-soft: #eff6ff; --danger: #ef4444; --danger-bg: #fef2f2; --ok: #10b981;
@@ -76,7 +75,6 @@
     box-sizing: border-box;
   }
   .slot-wrapper.disabled { background: #f9fafb; opacity: 0.85; }
-  /* 前台非管理員時的凍結狀態 */
   .slot-wrapper.disabled-click { pointer-events: none; }
   
   .slot-wrapper:not(.disabled-click):not(.admin-mode):hover { 
@@ -194,53 +192,60 @@
   .cancel-link { border: none; background: #fee2e2; color: #b91c1c; font-size: 12.5px; font-weight: 600; cursor: pointer; padding: 4px 12px; border-radius: 6px; transition: 0.15s; }
   .cancel-link:hover { background: #f87171; color: #fff; }
   
-  .auth-wrap { display: flex; justify-content: center; padding: 60px 20px; }
-  .auth-card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px; padding: 28px; width: 100%; max-width: 360px; box-shadow: var(--shadow-lg); }
-  .settings-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow-sm); }
-  
   .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: rgba(17, 24, 39, 0.9); backdrop-filter: blur(4px); color: #fff; padding: 10px 20px; border-radius: var(--radius-pill); font-size: 13.5px; font-weight: 500; box-shadow: var(--shadow-lg); z-index: 100; text-align: center; animation: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
 </style>
 </head>
 <body>
-<div class="app" id="app"><div style="padding:100px; text-align:center; font-weight:500; color:#6b7280;">系統載入中，請稍候...</div></div>
+<div class="app" id="app">
+  <div style="padding:100px; text-align:center; font-weight:500; color:#6b7280;">
+    <h2 style="color: #2563eb; margin-bottom: 10px;">🔄 身分驗證中...</h2>
+    系統安全載入中，請稍候
+  </div>
+</div>
 
 <script>
 (function(){
+  // ==========================================
+  // ⚙️ SSO 系統設定區
+  // ==========================================
+  const SSO_CENTER_URL = "https://cjh123-coder.github.io/sso/"; 
+  const CURRENT_APP_URL = "https://cjh123-coder.github.io/ipad/";
+  const GAS_API_URL = "https://script.google.com/macros/s/AKfycbwX6yX7iE4XFDltH1CnwUv937Ezl8a0thiveCFlr7Pat5jQJGrl76VTjdmluZ6ASY3f/exec"; // 請填入您最新的平板系統 GAS 部署網址
+
   const PERIODS = ['第一節','第二節','第三節','第四節','第五節','第六節','第七節','第八節'];
   const WEEKDAY_LABEL = ['日','一','二','三','四','五','六'];
   const MIN_LEAD_DAYS = 3;
   const THEMES = { blue:'藍色', green:'綠色', red:'紅色', orange:'橘黃', purple:'紫色', gray:'灰色' };
 
+  // 全域狀態：移除了密碼認證，加入 userData
   let state = {
     tab: 'teacher', weekStart: getMonday(new Date()),
     bookings: {}, carts: [],
     modal: null, cartModal: null, loaded: false,
-    adminAuthed: false, authError: null, toast: null, 
-    confirmCancelKey: null,
-    confirmDeleteCartId: null,
-    filterLocation: '' // 空字串代表全部地點
+    userData: null, // 存放登入者的資料
+    toast: null, confirmCancelKey: null, confirmDeleteCartId: null, filterLocation: ''
   };
 
+  // 輔助函數
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
   function fmt(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
-  function getMonday(d){
-    const nd = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    const day = nd.getDay(); 
-    nd.setDate(nd.getDate() + (day === 0 ? -6 : 1 - day));
-    return nd;
-  }
+  function getMonday(d){ const nd = new Date(d.getFullYear(), d.getMonth(), d.getDate()); const day = nd.getDay(); nd.setDate(nd.getDate() + (day === 0 ? -6 : 1 - day)); return nd; }
   function addDays(d, n){ const nd = new Date(d); nd.setDate(nd.getDate()+n); return nd; }
   function startOfToday(){ const t = new Date(); return new Date(t.getFullYear(), t.getMonth(), t.getDate()); }
   function daysBetween(a,b){ return Math.round((b-a)/86400000); }
   function weekDates(monday){ return [0,1,2,3,4].map(i => addDays(monday,i)); }
-  function fmtRange(monday){
-    const fri = addDays(monday,4);
-    return `${monday.getMonth()+1}/${monday.getDate()} – ${fri.getMonth()+1}/${fri.getDate()}`;
-  }
+  function fmtRange(monday){ const fri = addDays(monday,4); return `${monday.getMonth()+1}/${monday.getDate()} – ${fri.getMonth()+1}/${fri.getDate()}`; }
   function keyOf(date, periodIdx, cartId){ return date+'|'+periodIdx+'|'+cartId; }
   function isBookable(date){ return daysBetween(startOfToday(), new Date(date.getFullYear(), date.getMonth(), date.getDate())) >= MIN_LEAD_DAYS; }
   function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
   
+  // 權限判斷函式 (與後端呼應)
+  function checkIsAdmin(user) {
+    if(!user) return false;
+    const adminRoles = ['admin', 'assistant', 'director']; 
+    return adminRoles.includes(user.roleId);
+  }
+
   let toastTimer = null;
   function showToast(msg){
     state.toast = msg; render();
@@ -249,22 +254,18 @@
   }
 
   // ==========================================
-  // 前後端分離 API 串接設定
+  // 🚀 API 呼叫器 (自動夾帶 SessionId 強化安全)
   // ==========================================
-  const GAS_API_URL = "https://script.google.com/macros/s/AKfycbwX6yX7iE4XFDltH1CnwUv937Ezl8a0thiveCFlr7Pat5jQJGrl76VTjdmluZ6ASY3f/exec"; // <--- 部署後的 GAS 網址貼在這裡
-
-  // 改用 Fetch API 來呼叫後端
   async function callServer(fnName, ...args) {
     try {
+      const sessionId = localStorage.getItem('ipadSessionId') || "";
       const response = await fetch(GAS_API_URL, {
         method: 'POST',
-        // GAS 推薦跨域使用 text/plain 發送，避免 OPTIONS 預檢請求失敗
-        headers: {
-          'Content-Type': 'text/plain;charset=utf-8',
-        },
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
           action: fnName,
-          args: args
+          args: args,
+          sessionId: sessionId // 每次請求都帶上通行證
         })
       });
 
@@ -272,11 +273,102 @@
       if (result.status === 'success') {
         return result.data;
       } else {
+        // 如果後端拋出 Session 無效，立刻啟動登出機制
+        if(result.message.includes("Session 無效") || result.message.includes("請重新登入")) {
+          alert("登入逾時或無效，請重新登入！");
+          handleLogout(false);
+          throw new Error("SESSION_EXPIRED");
+        }
         throw new Error(result.message);
       }
     } catch (error) {
       console.error('API Error:', error);
       throw error;
+    }
+  }
+
+  // ==========================================
+  // 🛑 閒置防護與登出機制
+  // ==========================================
+  let idleTimer;
+  const IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10分鐘未動作自動登出
+
+  function resetIdleTimer() {
+    if (!localStorage.getItem('ipadUserData')) return;
+    localStorage.setItem('ipadLastActive', Date.now().toString());
+    clearTimeout(idleTimer);
+    
+    idleTimer = setTimeout(() => {
+      console.log("偵測到閒置超過 10 分鐘，啟動強制登出...");
+      alert("⏳ 您已閒置超過 10 分鐘，系統基於安全考量已將您登出。");
+      handleLogout(false);
+    }, IDLE_TIMEOUT_MS);
+  }
+
+  function setupIdleProtection() {
+    ['mousemove', 'keydown', 'scroll', 'click', 'touchstart'].forEach(event => {
+      document.addEventListener(event, resetIdleTimer);
+    });
+    resetIdleTimer();
+  }
+
+  async function handleLogout(notifyServer = true) {
+    if(notifyServer) {
+      try { await callServer('logoutSession'); } catch(e) {}
+    }
+    localStorage.removeItem('ipadUserData');
+    localStorage.removeItem('ipadSessionId');
+    localStorage.removeItem('ipadLastActive');
+    window.location.replace(SSO_CENTER_URL + "?redirect=" + encodeURIComponent(CURRENT_APP_URL));
+  }
+
+  // ==========================================
+  // 🛡️ SSO 守門員機制 (網頁載入時第一時間執行)
+  // ==========================================
+  async function initGatekeeper() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+
+    // 1. 如果網址上有 Token，進行身分兌換
+    if (token) {
+      try {
+        const response = await fetch(GAS_API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action: 'verifyIpadLogin', args: [token], sessionId: "" })
+        });
+        const result = await response.json();
+        
+        if (result.status === 'success' && result.data.success) {
+          // 儲存資料並抹除網址上的 Token
+          localStorage.setItem('ipadUserData', JSON.stringify(result.data.userData));
+          localStorage.setItem('ipadSessionId', result.data.sessionId);
+          window.location.replace(CURRENT_APP_URL);
+          return; // 終止後續執行，等待重新載入
+        } else {
+          alert("身分驗證失敗：" + (result.data ? result.data.message : result.message));
+          window.location.replace(SSO_CENTER_URL + "?redirect=" + encodeURIComponent(CURRENT_APP_URL));
+          return;
+        }
+      } catch (err) {
+        alert("伺服器連線異常，請重試！");
+        window.location.replace(SSO_CENTER_URL + "?redirect=" + encodeURIComponent(CURRENT_APP_URL));
+        return;
+      }
+    }
+
+    // 2. 檢查是否有本地 Session
+    const localUser = localStorage.getItem('ipadUserData');
+    const localSession = localStorage.getItem('ipadSessionId');
+
+    if (localUser && localSession) {
+      // 已登入：啟動系統
+      state.userData = JSON.parse(localUser);
+      setupIdleProtection();
+      loadBookings();
+    } else {
+      // 未登入：強制跳轉 SSO
+      window.location.replace(SSO_CENTER_URL + "?redirect=" + encodeURIComponent(CURRENT_APP_URL));
     }
   }
 
@@ -295,12 +387,15 @@
     }catch(e){ }
   }
 
+  // ==========================================
+  // UI 渲染邏輯
+  // ==========================================
   function render(){
     const app = document.getElementById('app');
     if(!state.loaded){ return; }
     app.innerHTML = `
       ${renderTopbar()}
-      ${state.tab === 'teacher' ? renderTeacher() : (state.adminAuthed ? renderAdmin() : renderAdminLogin())}
+      ${state.tab === 'teacher' ? renderTeacher() : renderAdmin()}
       ${state.modal ? renderModal() : ''}
       ${state.cartModal ? renderCartModal() : ''}
       ${state.confirmCancelKey ? renderCancelConfirm(state.confirmCancelKey) : ''}
@@ -312,38 +407,25 @@
 
   function renderTopbar(){
     const activeCarts = state.carts.filter(c => c.enabled);
+    const userRoleText = checkIsAdmin(state.userData) ? ' (管理員)' : '';
+
     return `
       <div class="topbar">
         <div>
           <h1>平板借用系統</h1>
-          <p>目前共登錄 ${activeCarts.length} 台可借用設備 · 週一至週五開放登記</p>
+          <p>目前共登錄 ${activeCarts.length} 台可借用設備 · 歡迎回來，<strong style="color:var(--accent);">${escapeHtml(state.userData.name)}</strong> 老師${userRoleText}！</p>
         </div>
         <div style="display:flex; align-items:center; gap:10px;">
           <div class="tabs">
-            <button data-tab="teacher" class="${state.tab==='teacher'?'active':''}">老師登記</button>
-            <button data-tab="admin" class="${state.tab==='admin'?'active':''}">管理後台</button>
+            <button data-tab="teacher" class="${state.tab==='teacher'?'active':''}">設備預約</button>
+            ${checkIsAdmin(state.userData) ? `<button data-tab="admin" class="${state.tab==='admin'?'active':''}">管理後台</button>` : ''}
           </div>
-          ${state.tab==='admin' && state.adminAuthed ? `<button class="btn ghost" style="padding:6px 12px; font-size:12px; box-shadow:var(--shadow-sm);" id="logoutBtn">登出</button>` : ''}
+          <button class="btn ghost" style="padding:6px 12px; font-size:12px; box-shadow:var(--shadow-sm);" id="logoutBtn">登出</button>
         </div>
       </div>
     `;
   }
 
-  function renderAdminLogin(){
-    return `
-      <div class="auth-wrap">
-        <div class="auth-card">
-          <h3 style="margin-bottom:6px;">管理者登入</h3>
-          <div style="color:var(--ink-soft); font-size:13.5px; margin-bottom:20px; font-weight:500;">僅供負責老師管理借用狀況與設備。</div>
-          ${state.authError ? `<div class="err">${escapeHtml(state.authError)}</div>` : ''}
-          <div class="field"><label>管理密碼</label><input type="password" id="inputPwd" autofocus></div>
-          <button type="button" id="loginBtn" class="btn primary" style="width:100%; margin-top:4px;">登入</button>
-        </div>
-      </div>
-    `;
-  }
-
-  // 產生「依放置地點過濾」選單
   function renderLocationFilter() {
     const locs = [...new Set(state.carts.map(c => (c.location || '').trim()).filter(Boolean))];
     if (locs.length === 0) return '';
@@ -375,12 +457,7 @@
     const dateStr = fmt(date);
     const day = date.getDay();
     const bookable = isBookable(date);
-    
-    // 依據選擇的地點過濾設備
-    const activeCarts = state.filterLocation 
-      ? state.carts.filter(c => (c.location || '').trim() === state.filterLocation) 
-      : state.carts;
-
+    const activeCarts = state.filterLocation ? state.carts.filter(c => (c.location || '').trim() === state.filterLocation) : state.carts;
     const cellBookings = activeCarts.map(c => state.bookings[keyOf(dateStr, periodIdx, c.cartId)]).filter(b => b);
     let html = '';
     
@@ -398,44 +475,30 @@
     });
 
     let isDisabled = false;
-    let isClickDisabled = false; // 控制是否封鎖點擊操作
+    let isClickDisabled = false;
 
     if (!adminMode && !bookable) {
-      isDisabled = true;
-      isClickDisabled = true;
+      isDisabled = true; isClickDisabled = true;
       html += `<div class="status-text">未滿3天</div>`;
     } else if (availableCarts.length === 0 && activeCarts.length > 0) {
       isDisabled = true;
-      // 關鍵修正：只有在前台（非管理員）才封鎖點擊，後台依然可以點擊裡面的設備取消
-      if (!adminMode) {
-        isClickDisabled = true;
-      }
+      if (!adminMode) isClickDisabled = true;
       html += `<div class="status-text">已額滿</div>`;
     } else if (availableCarts.length > 0) {
-      html += `
-        <button class="add-booking-btn" data-date="${dateStr}" data-period="${periodIdx}">
-          ＋ 預約
-        </button>
-      `;
+      html += `<button class="add-booking-btn" data-date="${dateStr}" data-period="${periodIdx}">＋ 預約</button>`;
     }
-
     return { html, isDisabled, isClickDisabled };
   }
 
   function renderTeacher(){
     const dates = weekDates(state.weekStart);
-    let html = `
+    return `
       ${renderWeekNav()}
       <div class="notice">登記須於使用日期 <strong>3 天前</strong>完成。</div>
-      
-      <!-- 電腦版二維表格 -->
       <div class="desktop-only table-wrap">
         <table class="desktop-table">
           <thead>
-            <tr>
-              <th>時段</th>
-              ${dates.map(d => `<th>週${WEEKDAY_LABEL[d.getDay()]} <span class="date">${d.getMonth()+1}/${d.getDate()}</span></th>`).join('')}
-            </tr>
+            <tr><th>時段</th>${dates.map(d => `<th>週${WEEKDAY_LABEL[d.getDay()]} <span class="date">${d.getMonth()+1}/${d.getDate()}</span></th>`).join('')}</tr>
           </thead>
           <tbody>
             ${PERIODS.map((label, pIdx) => `
@@ -445,42 +508,28 @@
                   const cell = getCellContent(d, pIdx, false);
                   return `<td><div class="slot-wrapper ${cell.isDisabled ? 'disabled' : ''} ${cell.isClickDisabled ? 'disabled-click' : ''}">${cell.html}</div></td>`;
                 }).join('')}
-              </tr>
-            `).join('')}
+              </tr>`).join('')}
           </tbody>
         </table>
       </div>
-
-      <!-- 手機版單欄堆疊 -->
       <div class="mobile-only">
         ${dates.map(d => {
-          let col = `<div class="day-column">
-            <div class="day-header">週${WEEKDAY_LABEL[d.getDay()]} <span class="date">${d.getMonth()+1}/${d.getDate()}</span></div>`;
+          let col = `<div class="day-column"><div class="day-header">週${WEEKDAY_LABEL[d.getDay()]} <span class="date">${d.getMonth()+1}/${d.getDate()}</span></div>`;
           PERIODS.forEach((label, pIdx) => {
             const cell = getCellContent(d, pIdx, false);
-            col += `<div class="mobile-slot ${cell.isDisabled ? 'disabled' : ''} ${cell.isClickDisabled ? 'disabled-click' : ''}">
-              <div class="mobile-period-label">${label}</div>
-              ${cell.html}
-            </div>`;
+            col += `<div class="mobile-slot ${cell.isDisabled ? 'disabled' : ''} ${cell.isClickDisabled ? 'disabled-click' : ''}"><div class="mobile-period-label">${label}</div>${cell.html}</div>`;
           });
-          col += `</div>`;
-          return col;
+          col += `</div>`; return col;
         }).join('')}
       </div>
     `;
-    return html;
   }
 
   function renderModal(){
     const { date, periodIdx } = state.modal;
     const d = new Date(date + 'T00:00:00');
     const day = d.getDay();
-    
-    // 預約表單也套用地點過濾
-    const activeCarts = state.filterLocation 
-      ? state.carts.filter(c => (c.location || '').trim() === state.filterLocation) 
-      : state.carts;
-
+    const activeCarts = state.filterLocation ? state.carts.filter(c => (c.location || '').trim() === state.filterLocation) : state.carts;
     const availableCarts = activeCarts.filter(c => {
       if (!c.enabled) return false;
       if ((c.blockedPeriods || []).includes(`${day}_${periodIdx}`)) return false;
@@ -500,7 +549,8 @@
             </select>
           </div>
           <div class="field"><label>使用班級</label><input type="text" id="inputClassName" placeholder="例如：701" autofocus></div>
-          <div class="field" style="margin-bottom:0;"><label>任課教師</label><input type="text" id="inputTeacher" placeholder="例如：王小明"></div>
+          <!-- 💡 自動帶入老師名字 -->
+          <div class="field" style="margin-bottom:0;"><label>任課教師</label><input type="text" id="inputTeacher" value="${escapeHtml(state.userData.name)}" placeholder="例如：王小明"></div>
           <div class="modal-actions">
             <button type="button" class="btn ghost" id="closeModal">取消</button>
             <button type="button" class="btn primary" id="confirmBookingBtn">確認登記</button>
@@ -513,12 +563,7 @@
   function renderCartModal() {
     const c = state.cartModal;
     const isNew = !c.cartId;
-    
-    let gridHtml = `
-      <table class="block-grid">
-        <thead><tr><th></th><th>一</th><th>二</th><th>三</th><th>四</th><th>五</th></tr></thead>
-        <tbody>
-    `;
+    let gridHtml = `<table class="block-grid"><thead><tr><th></th><th>一</th><th>二</th><th>三</th><th>四</th><th>五</th></tr></thead><tbody>`;
     PERIODS.forEach((pName, pIdx) => {
       gridHtml += `<tr><td>${pName}</td>`;
       [1, 2, 3, 4, 5].forEach(day => {
@@ -604,65 +649,32 @@
 
   function renderAdmin(){
     const dates = weekDates(state.weekStart);
-
     return `
-      <div class="settings-row">
-        <span style="font-size:14px; font-weight:700; color:#111827;">安全設定</span>
-        <div style="display:flex; align-items:center; gap:8px;">
-          <input type="password" id="inputNewPwd" placeholder="輸入新管理密碼" style="padding:6px 10px; max-width:180px;">
-          <button type="button" id="updatePwdBtn" class="btn ghost" style="padding:6px 12px; font-size:13px;">更新</button>
-        </div>
-        ${state.pwdSaved ? `<span style="font-size:13px; font-weight:600; color:var(--ok);">已更新</span>` : ''}
-      </div>
-
- <div class="admin-toolbar">
-        <h3 style="font-size:18px;">本週借用總表</h3>
+      <div class="admin-toolbar">
+        <h3 style="font-size:18px;">本週借用總表 (點擊方塊可強制取消)</h3>
         ${renderWeekNav()}
       </div>
-
-      <!-- 管理員版二維表格 -->
       <div class="desktop-only table-wrap" style="margin-bottom:24px;">
         <table class="desktop-table">
-          <thead>
-            <tr>
-              <th>時段</th>
-              ${dates.map(d => `<th>週${WEEKDAY_LABEL[d.getDay()]} <span class="date">${d.getMonth()+1}/${d.getDate()}</span></th>`).join('')}
-            </tr>
-          </thead>
+          <thead><tr><th>時段</th>${dates.map(d => `<th>週${WEEKDAY_LABEL[d.getDay()]} <span class="date">${d.getMonth()+1}/${d.getDate()}</span></th>`).join('')}</tr></thead>
           <tbody>
-            ${PERIODS.map((label, pIdx) => `
-              <tr>
-                <th>${label}</th>
-                ${dates.map(d => {
+            ${PERIODS.map((label, pIdx) => `<tr><th>${label}</th>${dates.map(d => {
                   const cell = getCellContent(d, pIdx, true);
-                  // 加入 admin-mode class
                   return `<td><div class="slot-wrapper admin-mode ${cell.isDisabled ? 'disabled' : ''} ${cell.isClickDisabled ? 'disabled-click' : ''}">${cell.html}</div></td>`;
-                }).join('')}
-              </tr>
-            `).join('')}
+                }).join('')}</tr>`).join('')}
           </tbody>
         </table>
       </div>
-
-      <!-- 管理員版手機單欄 -->
       <div class="mobile-only" style="margin-bottom:24px;">
         ${dates.map(d => {
-          let col = `<div class="day-column">
-            <div class="day-header">週${WEEKDAY_LABEL[d.getDay()]} <span class="date">${d.getMonth()+1}/${d.getDate()}</span></div>`;
+          let col = `<div class="day-column"><div class="day-header">週${WEEKDAY_LABEL[d.getDay()]} <span class="date">${d.getMonth()+1}/${d.getDate()}</span></div>`;
           PERIODS.forEach((label, pIdx) => {
             const cell = getCellContent(d, pIdx, true);
-            col += `<div class="mobile-slot admin-mode ${cell.isDisabled ? 'disabled' : ''} ${cell.isClickDisabled ? 'disabled-click' : ''}">
-              <div class="mobile-period-label">${label}</div>
-              ${cell.html}
-            </div>`;
+            col += `<div class="mobile-slot admin-mode ${cell.isDisabled ? 'disabled' : ''} ${cell.isClickDisabled ? 'disabled-click' : ''}"><div class="mobile-period-label">${label}</div>${cell.html}</div>`;
           });
-          col += `</div>`;
-          return col;
+          col += `</div>`; return col;
         }).join('')}
       </div>
-
-
-
 
       <div class="admin-toolbar" style="margin-top:28px;">
         <h3 style="font-size:18px;">設備管理中心</h3>
@@ -688,63 +700,27 @@
           </tbody>
         </table>
       </div>
-
-     
     `;
   }
 
   function bindEvents(){
     document.querySelectorAll('[data-tab]').forEach(btn=>{
-      btn.addEventListener('click', ()=>{ state.tab = btn.dataset.tab; state.modal = state.cartModal = state.authError = null; render(); });
+      btn.addEventListener('click', ()=>{ state.tab = btn.dataset.tab; state.modal = state.cartModal = null; render(); });
     });
     
-    // 過濾地點事件
     const locationFilter = document.getElementById('locationFilter');
-    if (locationFilter) {
-      locationFilter.addEventListener('change', (e) => {
-        state.filterLocation = e.target.value;
-        render();
-      });
-    }
-
-    const logoutBtn = document.getElementById('logoutBtn');
-    if(logoutBtn) logoutBtn.addEventListener('click', ()=>{ state.adminAuthed = false; state.tab = 'teacher'; render(); });
+    if (locationFilter) locationFilter.addEventListener('change', (e) => { state.filterLocation = e.target.value; render(); });
     
-    const loginBtn = document.getElementById('loginBtn');
-    async function doLogin(){
-      const pwd = (document.getElementById('inputPwd').value || '').trim();
-      if(!pwd){ state.authError = '請輸入密碼'; render(); return; }
-      loginBtn.disabled = true; loginBtn.textContent = '安全驗證中…';
-      try{
-        if(await callServer('verifyAdminPassword', pwd)){ state.adminAuthed = true; state.authError = null; }
-        else{ state.authError = '密碼錯誤，請重新輸入'; }
-      }catch(err){ state.authError = '網路連線錯誤'; }
-      render();
-    }
-    if(loginBtn) loginBtn.addEventListener('click', doLogin);
-    const inputPwd = document.getElementById('inputPwd');
-    if(inputPwd) inputPwd.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') doLogin(); });
-
-    const updatePwdBtn = document.getElementById('updatePwdBtn');
-    if(updatePwdBtn) updatePwdBtn.addEventListener('click', async ()=>{
-      const newPwd = (document.getElementById('inputNewPwd').value || '').trim();
-      if(newPwd.length < 4){ showToast('密碼至少需要 4 碼'); return; }
-      updatePwdBtn.disabled = true; updatePwdBtn.textContent = '...';
-      try{
-        await callServer('setAdminPassword', newPwd);
-        state.pwdSaved = true; render(); setTimeout(()=>{ state.pwdSaved = false; render(); }, 3000);
-      }catch(err){ showToast('更新失敗，請重試'); }
-    });
-
+    const logoutBtn = document.getElementById('logoutBtn');
+    if(logoutBtn) logoutBtn.addEventListener('click', () => handleLogout(true));
+    
     document.querySelectorAll('[data-nav]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         const n = parseInt(btn.dataset.nav,10);
-        state.weekStart = n===0 ? getMonday(new Date()) : addDays(state.weekStart, n*7);
-        render();
+        state.weekStart = n===0 ? getMonday(new Date()) : addDays(state.weekStart, n*7); render();
       });
     });
 
-    // ==== 借用管理 ====
     document.querySelectorAll('.add-booking-btn').forEach(btn=>{
       btn.addEventListener('click', ()=>{ state.modal = { date: btn.dataset.date, periodIdx: parseInt(btn.dataset.period,10) }; state.modalError = null; render(); });
     });
@@ -775,14 +751,12 @@
     if(closeModal) closeModal.addEventListener('click', ()=>{ state.modal=null; render(); });
 
     const confirmBookingBtn = document.getElementById('confirmBookingBtn');
-    async function doSubmitBooking(){
+    if(confirmBookingBtn) confirmBookingBtn.addEventListener('click', async ()=>{
       const inputCart = document.getElementById('inputCart');
       if(!inputCart || !inputCart.value){ state.modalError = '請選擇設備'; render(); return; }
       const cart = inputCart.value;
       const className = (document.getElementById('inputClassName').value || '').trim();
       const teacher = (document.getElementById('inputTeacher').value || '').trim().replace(/老師$/, '').trim();
-      
-      const qty = 1; // 強制作為 1 台寫入
       
       if(!className || !teacher){ state.modalError = '請完整填寫班級與教師資訊'; render(); return; }
       
@@ -790,7 +764,7 @@
       const d = new Date(date+'T00:00:00');
       if(!isBookable(d)){ state.modalError = '必須於使用日期 3 天前登記'; render(); return; }
 
-      if(confirmBookingBtn){ confirmBookingBtn.disabled = true; confirmBookingBtn.textContent = '資料同步中…'; }
+      confirmBookingBtn.disabled = true; confirmBookingBtn.textContent = '資料同步中…';
       try{
         await refreshFromServer();
         const k = keyOf(date, periodIdx, cart);
@@ -800,16 +774,13 @@
           state.modalError = '設備狀態異動或剛被預約，請重新選擇'; render(); return;
         }
 
-        const bookingObj = { date, periodIdx, cart, className, teacher, qty, createdAt: new Date().toISOString() };
+        const bookingObj = { date, periodIdx, cart, className, teacher, qty: 1, createdAt: new Date().toISOString() };
         const result = await callServer('addBooking', k, bookingObj);
-        if(!result || !result.ok){ state.modalError = '預約衝突，請重試'; await refreshFromServer(); render(); return; }
         
         state.bookings[k] = bookingObj; state.modal = null; render(); showToast('預約成功！');
-      }catch(err){ state.modalError = '網路連線異常，請稍後再試'; render(); }
-    }
-    if(confirmBookingBtn) confirmBookingBtn.addEventListener('click', doSubmitBooking);
+      }catch(err){ state.modalError = '網路或權限異常，預約失敗'; render(); }
+    });
 
-    // ==== 設備管理 ====
     const addCartBtn = document.getElementById('addCartBtn');
     if (addCartBtn) addCartBtn.addEventListener('click', () => { state.cartModal = { enabled: true, blockedPeriods: [], colorTheme: 'blue' }; render(); });
 
@@ -821,10 +792,7 @@
     });
 
     document.querySelectorAll('.delete-cart-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        state.confirmDeleteCartId = btn.dataset.id;
-        render();
-      });
+      btn.addEventListener('click', () => { state.confirmDeleteCartId = btn.dataset.id; render(); });
     });
 
     const deleteCartYes = document.getElementById('deleteCartYes');
@@ -862,11 +830,9 @@
         if(!name) { showToast('設備名稱為必填欄位'); return; }
         
         const blockedPeriods = Array.from(document.querySelectorAll('.grid-cell.is-blocked')).map(cell => `${cell.dataset.day}_${cell.dataset.period}`);
-
         const payload = {
           cartId: state.cartModal.cartId || 'cart_' + Date.now(),
-          name,
-          location: document.getElementById('cartLoc').value.trim(),
+          name, location: document.getElementById('cartLoc').value.trim(),
           colorTheme: document.getElementById('cartTheme').value,
           enabled: document.getElementById('cartEnabled').checked,
           blockedPeriods
@@ -877,13 +843,15 @@
           await callServer('saveCart', payload);
           await refreshFromServer();
           state.cartModal = null; showToast('設備設定已更新');
-        } catch(e) { showToast('儲存失敗，請檢查網路連線'); }
+        } catch(e) { showToast('儲存失敗，請檢查網路或權限'); }
         render();
       });
     }
   }
 
-  loadBookings();
+  // 啟動程式 (守門員第一時間介入)
+  initGatekeeper();
+
 })();
 </script>
 </body>
