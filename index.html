@@ -203,55 +203,7 @@
 </head>
 <body>
 <div class="app" id="app"><div style="padding:100px; text-align:center; font-weight:500; color:#6b7280;">系統載入中，請稍候...</div></div>
-(async function(){
-  // --- SSO 設定區 ---
-  const SSO_LOGIN_URL = 'https://cjh123-coder.github.io/sso/';
-  // 請填入你 SSO 系統的 GAS Web App 網址 (與成績系統共用同一個)
-  const SSO_GAS_API_URL = 'https://script.google.com/macros/s/AKfycbygUaH-YTSfS-XtiADst5U4NAf_gjHW-xagi1WJ1diTGdQvQfENq2zR_Gxxi9dlqruB/exec'; 
-  
-  // 檢查登入狀態與 Token 兌換
-  async function checkSSOAuth() {
-    const urlParams = new URLSearchParams(window.location.search);
-    const urlToken = urlParams.get('token');
 
-    // 狀況 A：網址帶有 Token，向 SSO 後端兌換老師資訊
-    if (urlToken) {
-      document.getElementById('app').innerHTML = `<div style="padding:100px; text-align:center;">SSO 安全憑證驗證中...</div>`;
-      try {
-        const response = await fetch(SSO_GAS_API_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ action: 'verifySSOToken', token: urlToken })
-        });
-        const result = await response.json();
-        
-        if (result.success) {
-          // 驗證成功，將姓名存入 localStorage，並清空網址列的 token
-          localStorage.setItem('teacher_name', result.displayName);
-          window.history.replaceState(null, null, window.location.pathname);
-        } else {
-          alert('登入憑證無效或已過期，請重新登入');
-          window.location.replace(`${SSO_LOGIN_URL}?redirect=${encodeURIComponent(window.location.href)}`);
-          return false;
-        }
-      } catch (err) {
-        alert('SSO 連線異常');
-        return false;
-      }
-    }
-
-    // 狀況 B：沒有 Token 且 LocalStorage 裡也沒有登入紀錄 -> 踢回 SSO
-    if (!localStorage.getItem('teacher_name')) {
-      window.location.replace(`${SSO_LOGIN_URL}?redirect=${encodeURIComponent(window.location.href)}`);
-      return false;
-    }
-    
-    return true; // 已登入
-  }
-
-  // 攔截點：等待 SSO 檢查完畢後，才繼續載入系統
-  const isAuthed = await checkSSOAuth();
-  if (!isAuthed) return; // 終止後續系統渲染
 
   // ... 以下保留原有的 PERIODS, THEMES, state 等變數與邏輯 ...
 <script>
@@ -550,10 +502,7 @@
             </select>
           </div>
           <div class="field"><label>使用班級</label><input type="text" id="inputClassName" placeholder="例如：701" autofocus></div>
-          <div class="field" style="margin-bottom:0;">
-          <label>任課教師</label>
-          <input type="text" id="inputTeacher" value="${escapeHtml(localStorage.getItem('teacher_name'))}" readonly style="background-color: #f3f4f6; cursor: not-allowed; color: #6b7280; font-weight: 600;">
-          </div>
+         <div class="field" style="margin-bottom:0;"><label>任課教師</label><input type="text" id="inputTeacher" placeholder="例如：王小明"></div>
           <div class="modal-actions">
             <button type="button" class="btn ghost" id="closeModal">取消</button>
             <button type="button" class="btn primary" id="confirmBookingBtn">確認登記</button>
