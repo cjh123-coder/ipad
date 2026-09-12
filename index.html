@@ -235,8 +235,7 @@
       const attr = canCancel ? `data-cancel-key="${keyOf(dateStr, periodIdx, b.cart)}" style="cursor:pointer;" title="點擊取消"` : `title="${escapeHtml(b.className)} / ${escapeHtml(b.teacher)}"`;
       const xBtn = canCancel ? `<div class="x-btn">✖</div>` : '';
       
-      html += `<div class="pill theme-${cartInfo.colorTheme}" ${attr}>${xBtn}<span>${escapeHtml(cartInfo.name)}</span><span class="who">${escapeHtml(b.className)}</span></div>`;
-    });
+     html += `<div class="pill theme-${cartInfo.colorTheme}" ${attr}>${xBtn}<span>${escapeHtml(cartInfo.name)} ${escapeHtml(b.className)}</span><span class="who">${escapeHtml(b.teacher)}</span></div>`;    });
 
     const availableCarts = activeCarts.filter(c => {
       if (!c.enabled || (c.blockedPeriods || []).includes(`${day}_${periodIdx}`) || state.bookings[keyOf(dateStr, periodIdx, c.cartId)]) return false;
@@ -264,9 +263,13 @@
     const locFilter = `<select id="locationFilter" style="padding:6px; border:1px solid var(--border); border-radius:4px;"><option value="">全部地點</option>${locs.map(l => `<option value="${escapeHtml(l)}" ${state.filterLocation===l?'selected':''}>${escapeHtml(l)}</option>`).join('')}</select>`;
     
     return `
-      <div class="weeknav">
-        <div style="font-weight:700; font-size:15px;"><button class="nav-btn" data-nav="-5">‹</button> <span style="margin:0 10px;">快速切換日期</span> <button class="nav-btn" data-nav="5">›</button></div>
-        <div style="display:flex; gap:8px;">${locFilter} <button class="today-btn" data-nav="today">回到今天</button></div>
+     <div class="weeknav" style="justify-content: flex-end;">
+        <div style="display:flex; gap:8px; align-items:center;">
+          ${locFilter}
+          <button class="nav-btn" data-nav="-5">‹</button>
+          <button class="today-btn" data-nav="today">回到今天</button>
+          <button class="nav-btn" data-nav="5">›</button>
+        </div>
       </div>
       <div class="notice">💡 防呆規則：至少 <strong>${state.sysSettings.minLeadDays} 天前</strong>預約，最遠預約 <strong>${state.sysSettings.maxBookingDays} 天</strong>，單週額度上限 <strong>${state.sysSettings.maxWeeklyPeriods} 節</strong>。可隨時於 1 天前自主點擊 ✖ 取消。</div>
       <div class="desktop-only table-wrap">
