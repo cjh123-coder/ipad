@@ -510,8 +510,25 @@
     document.querySelectorAll('[data-cancel-key]').forEach(el=>{ el.addEventListener('click', (e)=>{ e.stopPropagation(); state.confirmCancelKey = el.dataset.cancelKey; render(); }); });
 
     if(document.getElementById('cancelConfirmYes')) document.getElementById('cancelConfirmYes').addEventListener('click', async ()=>{
-      try{ await callServer('cancelBooking', state.confirmCancelKey); await loadInitialData(); state.confirmCancelKey = null; showToast('已成功取消'); }
-      catch(err){ showToast(err.message); }
+      const cancelKey = state.confirmCancelKey;
+      const backupBooking = state.bookings[cancelKey]; // 備份預約資料
+      
+      // 樂觀更新 (Optimistic Deletion)：立刻刪除前端資料、關閉確認視窗並重繪畫面
+      delete state.bookings[cancelKey];
+      state.confirmCancelKey = null;
+      render();
+
+      try {
+        // 背景非同步發送取消請求
+        await callServer('cancelBooking', cancelKey);
+        await loadInitialData(true); // 靜默同步
+        showToast('已成功取消');
+      } catch(err) {
+        // 若伺服器回傳失敗，則將備份資料還原，並跳出警告
+        if(backupBooking) state.bookings[cancelKey] = backupBooking;
+        await loadInitialData(true); // 靜默同步
+        showToast('取消失敗：' + err.message);
+      }
     });
     if(document.getElementById('cancelConfirmNo')) document.getElementById('cancelConfirmNo').addEventListener('click', ()=>{ state.confirmCancelKey = null; render(); });
     if(document.getElementById('closeModal')) document.getElementById('closeModal').addEventListener('click', ()=>{ state.modal=null; render(); });
