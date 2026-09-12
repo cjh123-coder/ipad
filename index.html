@@ -38,7 +38,7 @@
   .notice { background: #f0fdf4; border: 1px solid #dcfce7; color: #166534; border-radius: var(--radius); padding: 10px 14px; font-size: 13px; font-weight: 500; margin-bottom: 20px; }
 
   .desktop-table { width: 100%; border-collapse: collapse; table-layout: fixed; background: white; border: 1px solid var(--border); }
-.desktop-table th, .desktop-table td { border: 1px solid var(--border-soft); padding: 0; vertical-align: top; height: 1px; }
+  .desktop-table th, .desktop-table td { border: 1px solid var(--border-soft); padding: 0; vertical-align: top; height: 1px; }
   .desktop-table thead th { background: #f9fafb; padding: 12px 8px; font-size: 13.5px; height: auto; }
   .desktop-table tbody th { background: #f9fafb; font-size: 13px; width: 65px; padding: 8px; height: auto; }
   
@@ -52,6 +52,7 @@
   
   .add-booking-btn { background: #fff; border: 1px dashed var(--accent); color: var(--accent); border-radius: var(--radius-sm); padding: 6px 4px; font-size: 12.5px; font-weight: 700; cursor: pointer; opacity: 0; pointer-events: none; }
   .slot-wrapper:not(.disabled):hover .add-booking-btn { opacity: 1; pointer-events: auto; }
+  .status-text { font-size: 12px; font-weight: 600; color: #9ca3af; text-align: center; margin-top: 8px; }
   
   .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 50; padding:20px; }
   .modal { background: white; border-radius: 12px; width: 100%; max-width: 400px; padding: 24px; max-height: 90vh; overflow-y: auto; }
@@ -149,14 +150,14 @@
     const res = await fetch(GAS_API_URL, { method: 'POST', body: JSON.stringify({ action: fnName, args: args, sessionId }) });
     const result = await res.json();
     if (result.status === 'success') return result.data;
-    if (result.message.includes("Session") || result.message.includes("重新登入")) {
+    if (result.message.includes("Session") || result.message.includes("重新登入") || result.message === "EXPIRED") {
       handleLogout(false); throw new Error("EXPIRED");
     }
     throw new Error(result.message);
   }
 
   async function handleLogout(notifyServer = true) {
-    if(notifyServer) try { await callServer('logoutSession'); } catch(e) {}
+    if(notifyServer && state.userData) try { await callServer('logoutSession'); } catch(e) {}
     localStorage.clear();
     window.location.replace(SSO_CENTER_URL + "?redirect=" + encodeURIComponent(CURRENT_APP_URL));
   }
@@ -174,8 +175,10 @@
     }
     if (localStorage.getItem('ipadUserData') && localStorage.getItem('ipadSessionId')) {
       state.userData = JSON.parse(localStorage.getItem('ipadUserData'));
-      loadInitialData();
-    } else { handleLogout(false); }
+    } else {
+      state.userData = null; 
+    }
+    loadInitialData();
   }
 
   async function loadInitialData(){
@@ -201,16 +204,19 @@
 
   function renderTopbar(){
     const activeCarts = state.carts.filter(c => c.enabled);
+    const isGuest = !state.userData;
     const adminTag = checkIsAdmin(state.userData) ? ' (管理員)' : '';
+    const welcomeText = isGuest ? '<strong style="color:var(--ink-soft);">訪客模式 (請登入以預約)</strong>' : `歡迎，<strong style="color:var(--accent);">${escapeHtml(state.userData.name)}</strong> 老師${adminTag}`;
+    
     return `
       <div class="topbar">
-        <div><h1>平板借用系統</h1><p>全校開放 ${activeCarts.length} 台設備 · 歡迎，<strong style="color:var(--accent);">${escapeHtml(state.userData.name)}</strong> 老師${adminTag}</p></div>
+        <div><h1>平板借用系統</h1><p>全校開放 ${activeCarts.length} 台設備 · ${welcomeText}</p></div>
         <div style="display:flex; align-items:center; gap:10px;">
           <div class="tabs">
             <button data-tab="teacher" class="${state.tab==='teacher'?'active':''}">設備預約</button>
             ${checkIsAdmin(state.userData) ? `<button data-tab="admin" class="${state.tab==='admin'?'active':''}">管理後台</button>` : ''}
           </div>
-          <button class="btn ghost" style="padding:6px 12px; font-size:12px;" id="logoutBtn">登出</button>
+          <button class="btn ghost" style="padding:6px 12px; font-size:12px;" id="${isGuest ? 'loginBtn' : 'logoutBtn'}">${isGuest ? '登入系統' : '登出'}</button>
         </div>
       </div>
     `;
@@ -228,7 +234,7 @@
     
     cellBookings.forEach(b => {
       const cartInfo = activeCarts.find(c => c.cartId === b.cart) || {name: '未知', colorTheme: 'gray'};
-      const isMine = !adminMode && b.teacher.indexOf(state.userData.name) !== -1;
+      const isMine = !adminMode && state.userData && b.teacher.indexOf(state.userData.name) !== -1;
       const canCancel = adminMode || (isMine && date.getTime() > today.getTime());
       
       const attr = canCancel ? `data-cancel-key="${keyOf(dateStr, periodIdx, b.cart)}" style="cursor:pointer;" title="點擊取消"` : `title="${escapeHtml(b.className)} / ${escapeHtml(b.teacher)}"`;
@@ -240,7 +246,7 @@
     const availableCarts = activeCarts.filter(c => {
       if (!c.enabled || (c.blockedPeriods || []).includes(`${day}_${periodIdx}`) || state.bookings[keyOf(dateStr, periodIdx, c.cartId)]) return false;
       if (!adminMode && c.reservedFor) {
-        if (!c.reservedFor.split(',').map(s=>s.trim()).includes(state.userData.name)) return false;
+        if (!state.userData || !c.reservedFor.split(',').map(s=>s.trim()).includes(state.userData.name)) return false;
       }
       return true;
     });
@@ -424,7 +430,9 @@
   function bindEvents(){
     document.querySelectorAll('[data-tab]').forEach(btn=>{ btn.addEventListener('click', ()=>{ state.tab = btn.dataset.tab; render(); }); });
     if (document.getElementById('locationFilter')) document.getElementById('locationFilter').addEventListener('change', (e) => { state.filterLocation = e.target.value; render(); });
+    
     if (document.getElementById('logoutBtn')) document.getElementById('logoutBtn').addEventListener('click', () => handleLogout(true));
+    if (document.getElementById('loginBtn')) document.getElementById('loginBtn').addEventListener('click', () => window.location.replace(SSO_CENTER_URL + "?redirect=" + encodeURIComponent(CURRENT_APP_URL)));
     
     document.querySelectorAll('[data-nav]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
@@ -434,7 +442,17 @@
       });
     });
 
-    document.querySelectorAll('.add-booking-btn').forEach(btn=>{ btn.addEventListener('click', ()=>{ state.modal = { date: btn.dataset.date, periodIdx: parseInt(btn.dataset.period,10) }; render(); }); });
+    document.querySelectorAll('.add-booking-btn').forEach(btn=>{ 
+      btn.addEventListener('click', ()=>{ 
+        if (!state.userData) {
+          window.location.replace(SSO_CENTER_URL + "?redirect=" + encodeURIComponent(CURRENT_APP_URL));
+          return;
+        }
+        state.modal = { date: btn.dataset.date, periodIdx: parseInt(btn.dataset.period,10) }; 
+        render(); 
+      }); 
+    });
+    
     document.querySelectorAll('[data-cancel-key]').forEach(el=>{ el.addEventListener('click', (e)=>{ e.stopPropagation(); state.confirmCancelKey = el.dataset.cancelKey; render(); }); });
 
     if(document.getElementById('cancelConfirmYes')) document.getElementById('cancelConfirmYes').addEventListener('click', async ()=>{
