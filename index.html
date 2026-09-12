@@ -306,7 +306,8 @@
     const locFilter = `<select id="locationFilter" style="padding:6px; border:1px solid var(--border); border-radius:4px;"><option value="">全部地點</option>${locs.map(l => `<option value="${escapeHtml(l)}" ${state.filterLocation===l?'selected':''}>${escapeHtml(l)}</option>`).join('')}</select>`;
     
     return `
-      <div class="weeknav" style="justify-content: flex-end;">
+        <div class="weeknav" style="justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <div class="notice" style="margin-bottom: 0; padding: 6px 14px;">💡 借用規則：至少 <strong>${state.sysSettings.minLeadDays} 天前</strong>預約，最遠預約 <strong>${state.sysSettings.maxBookingDays} 天</strong>，單週額度上限 <strong>${state.sysSettings.maxWeeklyPeriods} 節</strong>。可隨時於 1 天前自主點擊 ✖ 取消。</div>
         <div style="display:flex; gap:8px; align-items:center;">
           ${locFilter}
           <button class="nav-btn" data-nav="-5">‹</button>
@@ -314,7 +315,6 @@
           <button class="nav-btn" data-nav="5">›</button>
         </div>
       </div>
-      <div class="notice">💡 防呆規則：至少 <strong>${state.sysSettings.minLeadDays} 天前</strong>預約，最遠預約 <strong>${state.sysSettings.maxBookingDays} 天</strong>，單週額度上限 <strong>${state.sysSettings.maxWeeklyPeriods} 節</strong>。可隨時於 1 天前自主點擊 ✖ 取消。</div>
       <div class="desktop-only table-wrap">
         <table class="desktop-table">
           <thead><tr><th>時段</th>${dates.map(d => {
