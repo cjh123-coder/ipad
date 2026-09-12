@@ -127,6 +127,20 @@
            fieldValue.startsWith(userName + ' (由') || 
            fieldValue.includes('(由 ' + userName + ' 登記)');
   }
+  
+  // [新增] 8 小時前端主動攔截降級機制
+  function enforceLocalSession() {
+    const loginTime = localStorage.getItem('ipadLoginTime');
+    if (loginTime && Date.now() - Number(loginTime) > 8 * 60 * 60 * 1000) {
+      localStorage.removeItem('ipadUserData');
+      localStorage.removeItem('ipadSessionId');
+      localStorage.removeItem('ipadLoginTime');
+      state.userData = null;
+      if (state.tab === 'admin') state.tab = 'teacher';
+      return false; // 已逾時失效
+    }
+    return true; // 有效
+  }
 
   function getMonday(dateStr) {
     const d = new Date(dateStr + 'T00:00:00');
@@ -180,6 +194,7 @@
     const res = await fetch(GAS_API_URL, { method: 'POST', body: JSON.stringify({ action: fnName, args: args, sessionId }) });
     const result = await res.json();
     if (result.status === 'success') return result.data;
+    // 後端過期精準捕捉
     if (result.message.includes("Session") || result.message.includes("重新登入") || result.message === "EXPIRED") {
       handleLogout(false); throw new Error("EXPIRED");
     }
@@ -199,12 +214,18 @@
       if (res.status === 'success' && res.data.success) {
         localStorage.setItem('ipadUserData', JSON.stringify(res.data.userData));
         localStorage.setItem('ipadSessionId', res.data.sessionId);
+        localStorage.setItem('ipadLoginTime', Date.now().toString()); // [新增] 寫入時間戳
         window.location.replace(CURRENT_APP_URL);
       } else { handleLogout(false); }
       return;
     }
+    
     if (localStorage.getItem('ipadUserData') && localStorage.getItem('ipadSessionId')) {
-      state.userData = JSON.parse(localStorage.getItem('ipadUserData'));
+      if (enforceLocalSession()) {
+        state.userData = JSON.parse(localStorage.getItem('ipadUserData'));
+      } else {
+        showToast('前次登入已逾時，已切換為訪客模式');
+      }
     } else {
       state.userData = null; 
     }
@@ -386,7 +407,7 @@
   }
 
   function renderModal(){
-    if (!state.userData) return ''; // 訪客模式安全阻擋防禦
+    if (!state.userData) return ''; 
     const { date, periodIdx } = state.modal;
     const d = new Date(date + 'T00:00:00');
     const day = d.getDay();
@@ -592,7 +613,6 @@
       const sysMax = parseInt(document.getElementById('sysMax').value, 10);
       const sysWeek = parseInt(document.getElementById('sysWeek').value, 10);
 
-      // 輸入驗證邏輯
       if (isNaN(sysMin) || isNaN(sysMax) || isNaN(sysWeek) || sysMin < 0 || sysMax < 0 || sysWeek < 0) {
         showToast('設定值必須為大於等於 0 的整數');
         return;
@@ -640,16 +660,24 @@
 
   initGatekeeper();
 
-  // 加入分頁喚醒即時同步
+  // [新增] 加入分頁喚醒即時同步與本地 Session 防呆
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && state.loaded) {
+      if (state.userData && !enforceLocalSession()) {
+        showToast('前次登入已逾時，已切換為訪客模式');
+        render();
+      }
       loadInitialData(true);
     }
   });
 
-  // 加入 60 秒背景靜默更新機制防幽靈空位
+  // [新增] 60 秒背景靜默更新與本地 Session 防呆
   setInterval(() => {
     if (state.loaded && !state.modal && !state.cartModal && !state.warningModal && !state.confirmCancelKey) {
+      if (state.userData && !enforceLocalSession()) {
+        showToast('前次登入已逾時，已切換為訪客模式');
+        render();
+      }
       loadInitialData(true);
     }
   }, 60000);
