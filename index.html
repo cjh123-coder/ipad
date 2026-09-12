@@ -37,7 +37,8 @@
   .nav-btn, .today-btn { border: 1px solid var(--border); background: var(--bg-panel); border-radius: var(--radius-sm); font-size: 13px; font-weight: 600; cursor: pointer; color: var(--ink-soft); padding: 6px 12px; }
   .notice { background: #f0fdf4; border: 1px solid #dcfce7; color: #166534; border-radius: var(--radius); padding: 10px 14px; font-size: 13px; font-weight: 500; margin-bottom: 20px; }
 
-  .desktop-table { width: 100%; border-collapse: collapse; table-layout: fixed; background: white; border: 1px solid var(--border); }
+.table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .desktop-table { width: 100%; min-width: 800px; border-collapse: collapse; table-layout: fixed; background: white; border: 1px solid var(--border); }
   .desktop-table th, .desktop-table td { border: 1px solid var(--border-soft); padding: 0; vertical-align: top; height: 1px; }
   .desktop-table thead th { background: #f9fafb; padding: 12px 8px; font-size: 13.5px; height: auto; text-align: center; }
   .desktop-table tbody th { background: #f9fafb; font-size: 13px; width: 65px; padding: 8px; height: auto; text-align: center; vertical-align: middle; }
@@ -315,7 +316,7 @@
           <button class="nav-btn" data-nav="5">›</button>
         </div>
       </div>
-      <div class="desktop-only table-wrap">
+      <div class="table-wrap">
         <table class="desktop-table">
           <thead><tr><th>時段</th>${dates.map(d => {
             const diff = daysBetween(getStartOfToday(), d);
@@ -347,7 +348,7 @@
           <button class="nav-btn" data-nav="5">›</button>
         </div>
       </div>
-      <div class="desktop-only table-wrap" style="margin-bottom:24px;">
+      <div class="table-wrap" style="margin-bottom:24px;">
         <table class="desktop-table">
           <thead><tr><th>時段</th>${dates.map(d => `<th>週${WEEKDAY_LABEL[d.getDay()]} <span class="date">${d.getMonth()+1}/${d.getDate()}</span></th>`).join('')}</tr></thead>
           <tbody>${PERIODS.map((label, pIdx) => `<tr><th>${label}</th>${dates.map(d => `<td><div class="slot-wrapper admin-mode">${getCellContent(d, pIdx, true).html}</div></td>`).join('')}</tr>`).join('')}</tbody>
