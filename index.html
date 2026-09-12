@@ -245,15 +245,17 @@
       return true;
     });
 
-    let isDisabled = false;
+   let isDisabled = false;
     if (!adminMode) {
-      if (diffDays < state.sysSettings.minLeadDays) { html += `<div class="status-text">未滿${state.sysSettings.minLeadDays}天</div>`; isDisabled = true; }
-      else if (diffDays > state.sysSettings.maxBookingDays) { html += `<div class="status-text">尚未開放</div>`; isDisabled = true; }
-      else if (availableCarts.length === 0 && activeCarts.length > 0) { html += `<div class="status-text">已額滿</div>`; isDisabled = true; }
-      else if (availableCarts.length > 0) html += `<button class="add-booking-btn" data-date="${dateStr}" data-period="${periodIdx}">＋ 預約</button>`;
-    } else {
-      html += `<div class="status-text">管理模式</div>`;
+      if (diffDays < state.sysSettings.minLeadDays || diffDays > state.sysSettings.maxBookingDays) { 
+        isDisabled = true; 
+      } else if (availableCarts.length === 0 && activeCarts.length > 0) { 
+        isDisabled = true; 
+      } else if (availableCarts.length > 0) { 
+        html += `<button class="add-booking-btn" data-date="${dateStr}" data-period="${periodIdx}">＋ 預約</button>`; 
+      }
     }
+    // adminMode 自動留白，不寫入任何文字
     return { html, isDisabled };
   }
 
@@ -274,8 +276,11 @@
       <div class="notice">💡 防呆規則：至少 <strong>${state.sysSettings.minLeadDays} 天前</strong>預約，最遠預約 <strong>${state.sysSettings.maxBookingDays} 天</strong>，單週額度上限 <strong>${state.sysSettings.maxWeeklyPeriods} 節</strong>。可隨時於 1 天前自主點擊 ✖ 取消。</div>
       <div class="desktop-only table-wrap">
         <table class="desktop-table">
-          <thead><tr><th>時段</th>${dates.map(d => `<th>週${WEEKDAY_LABEL[d.getDay()]} <span class="date">${d.getMonth()+1}/${d.getDate()}</span></th>`).join('')}</tr></thead>
-          <tbody>${PERIODS.map((label, pIdx) => `<tr><th>${label}</th>${dates.map(d => {
+<thead><tr><th>時段</th>${dates.map(d => {
+            const diff = daysBetween(getStartOfToday(), d);
+            const isBlocked = diff < state.sysSettings.minLeadDays || diff > state.sysSettings.maxBookingDays;
+            return `<th><div>週${WEEKDAY_LABEL[d.getDay()]} <span class="date">${d.getMonth()+1}/${d.getDate()}</span></div>${isBlocked ? '<div style="font-size:12.5px; color:#9ca3af; font-weight:500; margin-top:4px;">(不可預約)</div>' : ''}</th>`;
+          }).join('')}</tr></thead>          <tbody>${PERIODS.map((label, pIdx) => `<tr><th>${label}</th>${dates.map(d => {
             const cell = getCellContent(d, pIdx, false);
             return `<td><div class="slot-wrapper ${cell.isDisabled ? 'disabled' : ''}">${cell.html}</div></td>`;
           }).join('')}</tr>`).join('')}</tbody>
