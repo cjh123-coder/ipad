@@ -82,6 +82,14 @@
   }
   .desktop-only { display: block; }
   .mobile-only { display: none; }
+
+  /* 滑動開關專用 CSS */
+  .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; }
+  .toggle-switch input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 24px; }
+  .toggle-slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }
+  .toggle-switch input:checked + .toggle-slider { background-color: var(--accent); }
+  .toggle-switch input:checked + .toggle-slider:before { transform: translateX(20px); }
 </style>
 </head>
 <body>
@@ -113,7 +121,6 @@
   function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
   function checkIsAdmin(user) { return user && ['admin', 'assistant', 'director', 'headmaster'].includes(user.roleId); }
 
-  // 💡 滾動日曆引擎：跳過六日，取得未來的連續 X 個工作日
   function getBusinessDays(start, count) {
     let days = []; let d = new Date(start);
     while (days.length < count) {
@@ -276,10 +283,14 @@
 
   function renderAdmin(){
     const dates = getBusinessDays(state.viewStart, 5);
+    const locs = [...new Set(state.carts.map(c => (c.location || '').trim()).filter(Boolean))];
+    const locFilter = `<select id="locationFilter" style="padding:6px; border:1px solid var(--border); border-radius:4px;"><option value="">全部地點</option>${locs.map(l => `<option value="${escapeHtml(l)}" ${state.filterLocation===l?'selected':''}>${escapeHtml(l)}</option>`).join('')}</select>`;
+    const activeCarts = state.filterLocation ? state.carts.filter(c => (c.location || '').trim() === state.filterLocation) : state.carts;
+
     return `
       <div style="background:white; padding:15px; border:1px solid var(--border); border-radius:8px; margin-bottom:20px;">
         <h3>⚙️ 全域預約規則設定</h3>
-        <div style="display:flex; gap:15px; margin-top:10px;">
+        <div style="display:flex; gap:15px; margin-top:10px; flex-wrap:wrap;">
           <div><label>提前天數</label><input type="number" id="sysMin" value="${state.sysSettings.minLeadDays}" style="width:70px; padding:4px;"></div>
           <div><label>最遠天數</label><input type="number" id="sysMax" value="${state.sysSettings.maxBookingDays}" style="width:70px; padding:4px;"></div>
           <div><label>單週節數上限</label><input type="number" id="sysWeek" value="${state.sysSettings.maxWeeklyPeriods}" style="width:70px; padding:4px;"></div>
@@ -287,7 +298,15 @@
         </div>
       </div>
       
-      <div class="weeknav"><h3>強制管理總表 (點擊方塊可刪除任何預約)</h3><div style="display:flex; gap:8px;"><button class="nav-btn" data-nav="-5">‹</button><button class="today-btn" data-nav="today">回到今天</button><button class="nav-btn" data-nav="5">›</button></div></div>
+      <div class="weeknav">
+        <h3>強制管理總表 (點擊方塊可刪除任何預約)</h3>
+        <div style="display:flex; gap:8px; align-items:center;">
+          ${locFilter}
+          <button class="nav-btn" data-nav="-5">‹</button>
+          <button class="today-btn" data-nav="today">回到今天</button>
+          <button class="nav-btn" data-nav="5">›</button>
+        </div>
+      </div>
       <div class="desktop-only table-wrap" style="margin-bottom:24px;">
         <table class="desktop-table">
           <thead><tr><th>時段</th>${dates.map(d => `<th>週${WEEKDAY_LABEL[d.getDay()]} <span class="date">${d.getMonth()+1}/${d.getDate()}</span></th>`).join('')}</tr></thead>
@@ -299,7 +318,7 @@
       <table class="list-table" style="margin-bottom:40px;">
         <thead><tr><th>名稱</th><th>放置地點</th><th>保留對象</th><th>操作</th></tr></thead>
         <tbody>
-          ${state.carts.map(c => `<tr>
+          ${activeCarts.map(c => `<tr>
             <td style="font-weight:700;">${escapeHtml(c.name)} <span class="theme-${c.colorTheme}" style="padding:2px 6px; border-radius:4px; font-size:11px;">${THEMES[c.colorTheme]}</span></td>
             <td>${escapeHtml(c.location || '-')}</td>
             <td style="color:var(--danger); font-weight:600;">${escapeHtml(c.reservedFor || '全校開放')}</td>
@@ -327,9 +346,22 @@
     return `
       <div class="overlay" id="overlay"><div class="modal">
         <h3>新增預約</h3><div style="color:var(--ink-soft); margin-bottom:15px;">${d.getMonth()+1}月${d.getDate()}日 · ${PERIODS[periodIdx]}</div>
-        <div class="field"><label>選擇設備</label><select id="inputCart">${availableCarts.map(c => `<option value="${c.cartId}">${escapeHtml(c.name)}</option>`).join('')}</select></div>
-        <div class="field"><label>使用班級</label><input type="text" id="inputClassName" placeholder="701"></div>
-        <div class="field"><label>任課教師</label><input type="text" id="inputTeacher" value="${escapeHtml(state.userData.name)}"></div>
+        <div class="field">
+          <label>選擇設備</label>
+          <div style="display:flex; flex-direction:column; gap:10px; margin-top:8px;">
+            ${availableCarts.length > 0 ? availableCarts.map(c => `
+              <label style="display:flex; align-items:center; gap:10px; font-weight:500; cursor:pointer;">
+                <div class="toggle-switch">
+                  <input type="radio" name="inputCart" value="${c.cartId}">
+                  <span class="toggle-slider"></span>
+                </div>
+                <span>${escapeHtml(c.name)}</span>
+              </label>
+            `).join('') : '<span style="font-size:13px; color:var(--danger);">無可用設備</span>'}
+          </div>
+        </div>
+        <div class="field"><label>使用班級 <span style="color:red;">*</span></label><input type="text" id="inputClassName" placeholder="701" required></div>
+        <div class="field"><label>任課教師</label><input type="text" id="inputTeacher" value="${escapeHtml(state.userData.name)}" readonly style="background-color:#f3f4f6; color:var(--ink-soft); cursor:not-allowed;"></div>
         <div style="display:flex; gap:10px;"><button class="btn ghost" id="closeModal">取消</button><button class="btn primary" id="confirmBookingBtn">確定預約</button></div>
       </div></div>
     `;
@@ -402,10 +434,29 @@
 
     if(document.getElementById('confirmBookingBtn')) document.getElementById('confirmBookingBtn').addEventListener('click', async ()=>{
       const btn = document.getElementById('confirmBookingBtn'); btn.disabled = true;
+      
+      // 驗證是否已開啟設備開關
+      const selectedCartEl = document.querySelector('input[name="inputCart"]:checked');
+      if (!selectedCartEl) {
+        showToast('請選擇設備（開啟滑動開關）');
+        btn.disabled = false;
+        return;
+      }
+      const cartId = selectedCartEl.value;
+      
+      // 驗證使用班級是否為空
+      const className = document.getElementById('inputClassName').value.trim();
+      if (!className) {
+        showToast('請填寫使用班級');
+        document.getElementById('inputClassName').focus();
+        btn.disabled = false;
+        return;
+      }
+
       try{
-        await callServer('addBooking', keyOf(state.modal.date, state.modal.periodIdx, document.getElementById('inputCart').value), {
-          date: state.modal.date, periodIdx: state.modal.periodIdx, cart: document.getElementById('inputCart').value,
-          className: document.getElementById('inputClassName').value, teacher: document.getElementById('inputTeacher').value
+        await callServer('addBooking', keyOf(state.modal.date, state.modal.periodIdx, cartId), {
+          date: state.modal.date, periodIdx: state.modal.periodIdx, cart: cartId,
+          className: className, teacher: document.getElementById('inputTeacher').value
         });
         state.modal = null; await loadInitialData(); showToast('預約成功！');
       }catch(err){ showToast(err.message); btn.disabled = false; }
