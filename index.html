@@ -110,7 +110,7 @@
   let state = {
     tab: 'teacher', viewStart: getStartOfToday(),
     bookings: {}, carts: [], sysSettings: { minLeadDays: 3, maxBookingDays: 7, maxWeeklyPeriods: 5 },
-    modal: null, cartModal: null, loaded: false, userData: null, toast: null, confirmCancelKey: null, filterLocation: ''
+    modal: null, cartModal: null, loaded: false, userData: null, confirmCancelKey: null, filterLocation: ''
   };
 
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -141,8 +141,14 @@
   }
 
   function showToast(msg){
-    state.toast = msg; render();
-    setTimeout(()=> { state.toast = null; render(); }, 3000);
+    const existing = document.getElementById('sys-toast');
+    if (existing) existing.remove();
+    const toast = document.createElement('div');
+    toast.id = 'sys-toast';
+    toast.className = 'toast';
+    toast.textContent = msg;
+    document.body.appendChild(toast);
+    setTimeout(()=> { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 3000);
   }
 
   async function callServer(fnName, ...args) {
@@ -181,12 +187,17 @@
     loadInitialData();
   }
 
-  async function loadInitialData(){
+  async function loadInitialData(silent = false){
     try {
       const [b, c, s] = await Promise.all([ callServer('getBookings'), callServer('getCarts'), callServer('getSettings') ]);
       state.bookings = b||{}; state.carts = c||[]; state.sysSettings = s||state.sysSettings;
     } catch(e){}
-    state.loaded = true; render();
+    state.loaded = true; 
+    
+    // 如果是靜默模式 (silent === true) 且預約視窗正在開啟中，則「不」觸發重繪，保護使用者輸入內容
+    if (!(silent && (state.modal || state.cartModal))) {
+      render();
+    }
   }
 
   function render(){
@@ -197,7 +208,6 @@
       ${state.modal ? renderModal() : ''}
       ${state.cartModal ? renderCartModal() : ''}
       ${state.confirmCancelKey ? renderCancelConfirm() : ''}
-      ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ''}
     `;
     bindEvents();
   }
@@ -465,7 +475,6 @@
     if(document.getElementById('confirmBookingBtn')) document.getElementById('confirmBookingBtn').addEventListener('click', async ()=>{
       const btn = document.getElementById('confirmBookingBtn'); btn.disabled = true;
       
-      // 驗證是否已開啟設備開關
       const selectedCartEl = document.querySelector('input[name="inputCart"]:checked');
       if (!selectedCartEl) {
         showToast('請選擇設備（開啟滑動開關）');
@@ -474,7 +483,6 @@
       }
       const cartId = selectedCartEl.value;
       
-      // 驗證使用班級是否為空
       const className = document.getElementById('inputClassName').value.trim();
       if (!className) {
         showToast('請填寫使用班級');
@@ -497,17 +505,17 @@
       render(); 
 
       try {
-        // 在背景非同步發送 API 請求
         await callServer('addBooking', bKey, {
           date: dateStr, periodIdx: periodIdx, cart: cartId,
           className: className, teacher: teacherName
         });
-        await loadInitialData(); 
+        // 啟用靜默模式同步資料
+        await loadInitialData(true); 
         showToast('預約成功！');
       } catch(err) { 
-        // 若伺服器回傳失敗(如被搶先預約)，則刪除假資料並還原畫面
         delete state.bookings[bKey];
-        await loadInitialData(); 
+        // 啟用靜默模式同步資料
+        await loadInitialData(true); 
         showToast('預約失敗：' + err.message); 
       }
     });
