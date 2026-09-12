@@ -38,12 +38,12 @@
   .notice { background: #f0fdf4; border: 1px solid #dcfce7; color: #166534; border-radius: var(--radius); padding: 10px 14px; font-size: 13px; font-weight: 500; margin-bottom: 20px; }
 
   .desktop-table { width: 100%; border-collapse: collapse; table-layout: fixed; background: white; border: 1px solid var(--border); }
-  .desktop-table th, .desktop-table td { border: 1px solid var(--border-soft); }
+  .desktop-table th, .desktop-table td { border: 1px solid var(--border-soft); padding: 0; vertical-align: top; }
   .desktop-table thead th { background: #f9fafb; padding: 12px 8px; font-size: 13.5px; }
-  .desktop-table tbody th { background: #f9fafb; font-size: 13px; width: 65px; }
+  .desktop-table tbody th { background: #f9fafb; font-size: 13px; width: 65px; padding: 8px; }
   
-  .slot-wrapper { display: flex; flex-direction: column; gap: 6px; min-height: 72px; padding: 8px; box-sizing: border-box; }
-  .slot-wrapper.disabled { background: #f9fafb; opacity: 0.85; pointer-events: none; }
+  .slot-wrapper { display: flex; flex-direction: column; gap: 6px; min-height: 72px; height: 100%; padding: 8px; box-sizing: border-box; }
+  .slot-wrapper.disabled { background: #f3f4f6; opacity: 1; pointer-events: none; }
   .slot-wrapper:not(.disabled):not(.admin-mode):hover { background: #f8fafc; box-shadow: inset 0 0 0 2px var(--accent); }
 
   .pill { position: relative; display: flex; flex-direction: column; align-items: center; padding: 6px 4px; border-radius: var(--radius-sm); font-size: 12.5px; font-weight: 700; }
@@ -52,7 +52,6 @@
   
   .add-booking-btn { background: #fff; border: 1px dashed var(--accent); color: var(--accent); border-radius: var(--radius-sm); padding: 6px 4px; font-size: 12.5px; font-weight: 700; cursor: pointer; opacity: 0; pointer-events: none; }
   .slot-wrapper:not(.disabled):hover .add-booking-btn { opacity: 1; pointer-events: auto; }
-  .status-text { font-size: 12px; font-weight: 600; color: #9ca3af; text-align: center; margin-top: 8px; }
   
   .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 50; padding:20px; }
   .modal { background: white; border-radius: 12px; width: 100%; max-width: 400px; padding: 24px; max-height: 90vh; overflow-y: auto; }
@@ -235,7 +234,8 @@
       const attr = canCancel ? `data-cancel-key="${keyOf(dateStr, periodIdx, b.cart)}" style="cursor:pointer;" title="點擊取消"` : `title="${escapeHtml(b.className)} / ${escapeHtml(b.teacher)}"`;
       const xBtn = canCancel ? `<div class="x-btn">✖</div>` : '';
       
-     html += `<div class="pill theme-${cartInfo.colorTheme}" ${attr}>${xBtn}<span>${escapeHtml(cartInfo.name)} ${escapeHtml(b.className)}</span><span class="who">${escapeHtml(b.teacher)}</span></div>`;    });
+      html += `<div class="pill theme-${cartInfo.colorTheme}" ${attr}>${xBtn}<span>${escapeHtml(cartInfo.name)} ${escapeHtml(b.className)}</span><span class="who">${escapeHtml(b.teacher)}</span></div>`;
+    });
 
     const availableCarts = activeCarts.filter(c => {
       if (!c.enabled || (c.blockedPeriods || []).includes(`${day}_${periodIdx}`) || state.bookings[keyOf(dateStr, periodIdx, c.cartId)]) return false;
@@ -245,7 +245,7 @@
       return true;
     });
 
-   let isDisabled = false;
+    let isDisabled = false;
     if (!adminMode) {
       if (diffDays < state.sysSettings.minLeadDays || diffDays > state.sysSettings.maxBookingDays) { 
         isDisabled = true; 
@@ -254,8 +254,11 @@
       } else if (availableCarts.length > 0) { 
         html += `<button class="add-booking-btn" data-date="${dateStr}" data-period="${periodIdx}">＋ 預約</button>`; 
       }
+    } else {
+      if (availableCarts.length > 0) {
+        html += `<button class="add-booking-btn" data-date="${dateStr}" data-period="${periodIdx}">＋ 預約 (管理員)</button>`; 
+      }
     }
-    // adminMode 自動留白，不寫入任何文字
     return { html, isDisabled };
   }
 
@@ -265,7 +268,7 @@
     const locFilter = `<select id="locationFilter" style="padding:6px; border:1px solid var(--border); border-radius:4px;"><option value="">全部地點</option>${locs.map(l => `<option value="${escapeHtml(l)}" ${state.filterLocation===l?'selected':''}>${escapeHtml(l)}</option>`).join('')}</select>`;
     
     return `
-     <div class="weeknav" style="justify-content: flex-end;">
+      <div class="weeknav" style="justify-content: flex-end;">
         <div style="display:flex; gap:8px; align-items:center;">
           ${locFilter}
           <button class="nav-btn" data-nav="-5">‹</button>
@@ -276,11 +279,12 @@
       <div class="notice">💡 防呆規則：至少 <strong>${state.sysSettings.minLeadDays} 天前</strong>預約，最遠預約 <strong>${state.sysSettings.maxBookingDays} 天</strong>，單週額度上限 <strong>${state.sysSettings.maxWeeklyPeriods} 節</strong>。可隨時於 1 天前自主點擊 ✖ 取消。</div>
       <div class="desktop-only table-wrap">
         <table class="desktop-table">
-<thead><tr><th>時段</th>${dates.map(d => {
+          <thead><tr><th>時段</th>${dates.map(d => {
             const diff = daysBetween(getStartOfToday(), d);
             const isBlocked = diff < state.sysSettings.minLeadDays || diff > state.sysSettings.maxBookingDays;
             return `<th><div>週${WEEKDAY_LABEL[d.getDay()]} <span class="date">${d.getMonth()+1}/${d.getDate()}</span></div>${isBlocked ? '<div style="font-size:12.5px; color:#9ca3af; font-weight:500; margin-top:4px;">(不可預約)</div>' : ''}</th>`;
-          }).join('')}</tr></thead>          <tbody>${PERIODS.map((label, pIdx) => `<tr><th>${label}</th>${dates.map(d => {
+          }).join('')}</tr></thead>
+          <tbody>${PERIODS.map((label, pIdx) => `<tr><th>${label}</th>${dates.map(d => {
             const cell = getCellContent(d, pIdx, false);
             return `<td><div class="slot-wrapper ${cell.isDisabled ? 'disabled' : ''}">${cell.html}</div></td>`;
           }).join('')}</tr>`).join('')}</tbody>
@@ -296,16 +300,6 @@
     const activeCarts = state.filterLocation ? state.carts.filter(c => (c.location || '').trim() === state.filterLocation) : state.carts;
 
     return `
-      <div style="background:white; padding:15px; border:1px solid var(--border); border-radius:8px; margin-bottom:20px;">
-        <h3>⚙️ 全域預約規則設定</h3>
-        <div style="display:flex; gap:15px; margin-top:10px; flex-wrap:wrap;">
-          <div><label>提前天數</label><input type="number" id="sysMin" value="${state.sysSettings.minLeadDays}" style="width:70px; padding:4px;"></div>
-          <div><label>最遠天數</label><input type="number" id="sysMax" value="${state.sysSettings.maxBookingDays}" style="width:70px; padding:4px;"></div>
-          <div><label>單週節數上限</label><input type="number" id="sysWeek" value="${state.sysSettings.maxWeeklyPeriods}" style="width:70px; padding:4px;"></div>
-          <div style="display:flex; align-items:flex-end;"><button id="saveSysBtn" class="btn primary" style="padding:6px 15px;">儲存規則</button></div>
-        </div>
-      </div>
-      
       <div class="weeknav">
         <h3>強制管理總表 (點擊方塊可刪除任何預約)</h3>
         <div style="display:flex; gap:8px; align-items:center;">
@@ -334,6 +328,16 @@
           </tr>`).join('')}
         </tbody>
       </table>
+
+      <div style="background:white; padding:15px; border:1px solid var(--border); border-radius:8px; margin-bottom:20px;">
+        <h3>⚙️ 全域預約規則設定</h3>
+        <div style="display:flex; gap:15px; margin-top:10px; flex-wrap:wrap;">
+          <div><label>提前天數</label><input type="number" id="sysMin" value="${state.sysSettings.minLeadDays}" style="width:70px; padding:4px;"></div>
+          <div><label>最遠天數</label><input type="number" id="sysMax" value="${state.sysSettings.maxBookingDays}" style="width:70px; padding:4px;"></div>
+          <div><label>單週節數上限</label><input type="number" id="sysWeek" value="${state.sysSettings.maxWeeklyPeriods}" style="width:70px; padding:4px;"></div>
+          <div style="display:flex; align-items:flex-end;"><button id="saveSysBtn" class="btn primary" style="padding:6px 15px;">儲存規則</button></div>
+        </div>
+      </div>
     `;
   }
 
@@ -369,7 +373,7 @@
           </div>
         </div>
         <div class="field"><label>使用班級 <span style="color:red;">*</span></label><input type="text" id="inputClassName" placeholder="701" required></div>
-        <div class="field"><label>任課教師</label><input type="text" id="inputTeacher" value="${escapeHtml(state.userData.name)}" readonly style="background-color:#f3f4f6; color:var(--ink-soft); cursor:not-allowed;"></div>
+        <div class="field"><label>任課教師</label><input type="text" id="inputTeacher" value="${escapeHtml(state.userData.name)}" ${checkIsAdmin(state.userData) ? '' : 'readonly style="background-color:#f3f4f6; color:var(--ink-soft); cursor:not-allowed;"'}></div>
         <div style="display:flex; gap:10px;"><button class="btn ghost" id="closeModal">取消</button><button class="btn primary" id="confirmBookingBtn">確定預約</button></div>
       </div></div>
     `;
