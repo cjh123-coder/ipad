@@ -37,7 +37,7 @@
   .nav-btn, .today-btn { border: 1px solid var(--border); background: var(--bg-panel); border-radius: var(--radius-sm); font-size: 13px; font-weight: 600; cursor: pointer; color: var(--ink-soft); padding: 6px 12px; }
   .notice { background: #f0fdf4; border: 1px solid #dcfce7; color: #166534; border-radius: var(--radius); padding: 10px 14px; font-size: 13px; font-weight: 500; margin-bottom: 20px; }
 
-.table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .desktop-table { width: 100%; min-width: 800px; border-collapse: collapse; table-layout: fixed; background: white; border: 1px solid var(--border); }
   .desktop-table th, .desktop-table td { border: 1px solid var(--border-soft); padding: 0; vertical-align: top; height: 1px; }
   .desktop-table thead th { background: #f9fafb; padding: 12px 8px; font-size: 13.5px; height: auto; text-align: center; }
@@ -122,6 +122,14 @@
   function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
   function checkIsAdmin(user) { return user && ['admin', 'assistant', 'director', 'headmaster'].includes(user.roleId); }
 
+  // [修正 4] 精準姓名比對，避免子字串誤判
+  function matchUser(fieldValue, userName) {
+    if (!fieldValue || !userName) return false;
+    return fieldValue === userName || 
+           fieldValue.startsWith(userName + ' (由') || 
+           fieldValue.includes('(由 ' + userName + ' 登記)');
+  }
+
   function getMonday(dateStr) {
     const d = new Date(dateStr + 'T00:00:00');
     const day = d.getDay();
@@ -134,7 +142,8 @@
     const targetMonday = getMonday(dateStr);
     let count = 0;
     Object.values(state.bookings).forEach(b => {
-      if (b.teacher && b.teacher.indexOf(state.userData.name) !== -1 && getMonday(b.date) === targetMonday) count++;
+      // [修正 4] 套用精準比對
+      if (matchUser(b.teacher, state.userData.name) && getMonday(b.date) === targetMonday) count++;
     });
     return count;
   }
@@ -212,7 +221,6 @@
     } catch(e){}
     state.loaded = true; 
     
-    // 如果是靜默模式 (silent === true) 且預約視窗正在開啟中，則「不」觸發重繪，保護使用者輸入內容
     if (!(silent && (state.modal || state.cartModal || state.warningModal))) {
       render();
     }
@@ -263,7 +271,8 @@
     
     cellBookings.forEach(b => {
       const cartInfo = activeCarts.find(c => c.cartId === b.cart) || {name: '未知', colorTheme: 'gray'};
-      const isMine = !adminMode && state.userData && b.teacher.indexOf(state.userData.name) !== -1;
+      // [修正 4] 套用精準比對判斷是否為本人的預約
+      const isMine = !adminMode && state.userData && matchUser(b.teacher, state.userData.name);
       const canCancel = adminMode || (isMine && date.getTime() > today.getTime());
       
       const attr = canCancel ? `data-cancel-key="${keyOf(dateStr, periodIdx, b.cart)}" style="cursor:pointer;" title="點擊取消"` : `title="${escapeHtml(b.className)} / ${escapeHtml(b.teacher)}"`;
@@ -435,7 +444,7 @@
       <div class="overlay" id="cartOverlay"><div class="modal" style="max-width:500px;">
         <h3>平板車設定</h3>
         <div style="display:flex; gap:10px;">
-          <div class="field" style="flex:1;"><label>名稱</label><input type="text" id="cartName" value="${escapeHtml(c.name||'')}"></div>
+          <div class="field" style="flex:1;"><label>名稱 <span style="color:red;">*</span></label><input type="text" id="cartName" value="${escapeHtml(c.name||'')}"></div>
           <div class="field" style="flex:1;"><label>地點</label><input type="text" id="cartLoc" value="${escapeHtml(c.location||'')}"></div>
           <div class="field"><label>標籤</label><select id="cartTheme">${Object.keys(THEMES).map(k => `<option value="${k}" ${c.colorTheme===k?'selected':''}>${THEMES[k]}</option>`).join('')}</select></div>
         </div>
@@ -512,22 +521,19 @@
 
     if(document.getElementById('cancelConfirmYes')) document.getElementById('cancelConfirmYes').addEventListener('click', async ()=>{
       const cancelKey = state.confirmCancelKey;
-      const backupBooking = state.bookings[cancelKey]; // 備份預約資料
+      const backupBooking = state.bookings[cancelKey];
       
-      // 樂觀更新 (Optimistic Deletion)：立刻刪除前端資料、關閉確認視窗並重繪畫面
       delete state.bookings[cancelKey];
       state.confirmCancelKey = null;
       render();
 
       try {
-        // 背景非同步發送取消請求
         await callServer('cancelBooking', cancelKey);
-        await loadInitialData(true); // 靜默同步
+        await loadInitialData(true); 
         showToast('已成功取消');
       } catch(err) {
-        // 若伺服器回傳失敗，則將備份資料還原，並跳出警告
         if(backupBooking) state.bookings[cancelKey] = backupBooking;
-        await loadInitialData(true); // 靜默同步
+        render(); // [修正 2] 確保恢復資料後重繪 UI
         showToast('取消失敗：' + err.message);
       }
     });
@@ -535,7 +541,8 @@
     if(document.getElementById('closeModal')) document.getElementById('closeModal').addEventListener('click', ()=>{ state.modal=null; render(); });
 
     if(document.getElementById('confirmBookingBtn')) document.getElementById('confirmBookingBtn').addEventListener('click', async ()=>{
-      const btn = document.getElementById('confirmBookingBtn'); btn.disabled = true;
+      const btn = document.getElementById('confirmBookingBtn'); 
+      btn.disabled = true;
       
       const selectedCartEl = document.querySelector('input[name="inputCart"]:checked');
       if (!selectedCartEl) {
@@ -558,7 +565,7 @@
       const periodIdx = state.modal.periodIdx;
       const bKey = keyOf(dateStr, periodIdx, cartId);
       
-      // 樂觀更新 (Optimistic UI)：先寫入前端 state 並立即關閉視窗重繪畫面
+      // 樂觀更新 (Optimistic UI)
       state.bookings[bKey] = {
         date: dateStr, periodIdx: periodIdx, cart: cartId,
         className: className, teacher: teacherName
@@ -571,14 +578,18 @@
           date: dateStr, periodIdx: periodIdx, cart: cartId,
           className: className, teacher: teacherName
         });
-        // 啟用靜默模式同步資料
         await loadInitialData(true); 
         showToast('預約成功！');
       } catch(err) { 
+        // [修正 2] 雙重預約失敗時，確實移除並強制重繪畫面
         delete state.bookings[bKey];
-        // 啟用靜默模式同步資料
-        await loadInitialData(true); 
+        render(); 
         showToast('預約失敗：' + err.message); 
+      } finally {
+        // 解除按鈕鎖定以策安全
+        if(document.getElementById('confirmBookingBtn')) {
+           document.getElementById('confirmBookingBtn').disabled = false;
+        }
       }
     });
 
@@ -601,9 +612,17 @@
     if(document.getElementById('closeCartModal')) document.getElementById('closeCartModal').addEventListener('click', ()=>{ state.cartModal=null; render(); });
 
     if (document.getElementById('saveCartBtn')) document.getElementById('saveCartBtn').addEventListener('click', async () => {
+      // [修正 5] 阻擋設備名稱被清空存為空字串
+      const cName = document.getElementById('cartName').value.trim();
+      if (!cName) {
+        showToast('請填寫設備名稱');
+        return;
+      }
+
       try {
         await callServer('saveCart', {
-          cartId: state.cartModal.cartId || 'cart_' + Date.now(), name: document.getElementById('cartName').value,
+          cartId: state.cartModal.cartId || 'cart_' + Date.now(), 
+          name: cName,
           location: document.getElementById('cartLoc').value, colorTheme: document.getElementById('cartTheme').value,
           enabled: document.getElementById('cartEnabled').checked, reservedFor: document.getElementById('cartReserved').value,
           blockedPeriods: Array.from(document.querySelectorAll('.grid-cell.is-blocked')).map(cell => `${cell.dataset.day}_${cell.dataset.period}`)
