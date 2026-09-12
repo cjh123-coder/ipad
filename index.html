@@ -53,6 +53,15 @@
   
   .add-booking-btn { background: #fff; border: 1px dashed var(--accent); color: var(--accent); border-radius: var(--radius-sm); padding: 6px 4px; font-size: 12.5px; font-weight: 700; cursor: pointer; opacity: 0; pointer-events: none; }
   .slot-wrapper:not(.disabled):hover .add-booking-btn { opacity: 1; pointer-events: auto; }
+  
+  /* 觸控設備專用：按鈕常駐顯示 */
+  @media (hover: none), (pointer: coarse) {
+    .add-booking-btn {
+      opacity: 1 !important;
+      pointer-events: auto !important;
+    }
+  }
+
   .status-text { font-size: 12px; font-weight: 600; color: #9ca3af; text-align: center; margin-top: 8px; }
   
   .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 50; padding:20px; }
@@ -79,7 +88,7 @@
     .desktop-only { display: none !important; }
     .mobile-only { display: flex; flex-direction: column; gap: 20px; }
     .mobile-slot { border: 1px solid var(--border); padding: 14px; background: white; margin-bottom:10px; border-radius:8px;}
-    .add-booking-btn { opacity: 1; pointer-events: auto; padding: 10px; }
+    .add-booking-btn { padding: 10px; }
   }
   .desktop-only { display: block; }
   .mobile-only { display: none; }
@@ -128,7 +137,6 @@
            fieldValue.includes('(由 ' + userName + ' 登記)');
   }
   
-  // [新增] 8 小時前端主動攔截降級機制
   function enforceLocalSession() {
     const loginTime = localStorage.getItem('ipadLoginTime');
     if (loginTime && Date.now() - Number(loginTime) > 8 * 60 * 60 * 1000) {
@@ -137,9 +145,9 @@
       localStorage.removeItem('ipadLoginTime');
       state.userData = null;
       if (state.tab === 'admin') state.tab = 'teacher';
-      return false; // 已逾時失效
+      return false;
     }
-    return true; // 有效
+    return true;
   }
 
   function getMonday(dateStr) {
@@ -194,7 +202,6 @@
     const res = await fetch(GAS_API_URL, { method: 'POST', body: JSON.stringify({ action: fnName, args: args, sessionId }) });
     const result = await res.json();
     if (result.status === 'success') return result.data;
-    // 後端過期精準捕捉
     if (result.message.includes("Session") || result.message.includes("重新登入") || result.message === "EXPIRED") {
       handleLogout(false); throw new Error("EXPIRED");
     }
@@ -214,7 +221,7 @@
       if (res.status === 'success' && res.data.success) {
         localStorage.setItem('ipadUserData', JSON.stringify(res.data.userData));
         localStorage.setItem('ipadSessionId', res.data.sessionId);
-        localStorage.setItem('ipadLoginTime', Date.now().toString()); // [新增] 寫入時間戳
+        localStorage.setItem('ipadLoginTime', Date.now().toString());
         window.location.replace(CURRENT_APP_URL);
       } else { handleLogout(false); }
       return;
@@ -660,7 +667,6 @@
 
   initGatekeeper();
 
-  // [新增] 加入分頁喚醒即時同步與本地 Session 防呆
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && state.loaded) {
       if (state.userData && !enforceLocalSession()) {
@@ -671,7 +677,6 @@
     }
   });
 
-  // [新增] 60 秒背景靜默更新與本地 Session 防呆
   setInterval(() => {
     if (state.loaded && !state.modal && !state.cartModal && !state.warningModal && !state.confirmCancelKey) {
       if (state.userData && !enforceLocalSession()) {
