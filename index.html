@@ -39,8 +39,8 @@
 
   .desktop-table { width: 100%; border-collapse: collapse; table-layout: fixed; background: white; border: 1px solid var(--border); }
   .desktop-table th, .desktop-table td { border: 1px solid var(--border-soft); padding: 0; vertical-align: top; height: 1px; }
-  .desktop-table thead th { background: #f9fafb; padding: 12px 8px; font-size: 13.5px; height: auto; }
-  .desktop-table tbody th { background: #f9fafb; font-size: 13px; width: 65px; padding: 8px; height: auto; }
+  .desktop-table thead th { background: #f9fafb; padding: 12px 8px; font-size: 13.5px; height: auto; text-align: center; }
+  .desktop-table tbody th { background: #f9fafb; font-size: 13px; width: 65px; padding: 8px; height: auto; text-align: center; vertical-align: middle; }
   
   .slot-wrapper { display: flex; flex-direction: column; gap: 6px; min-height: 72px; height: 100%; padding: 8px; box-sizing: border-box; }
   .slot-wrapper.disabled { background: #f3f4f6; opacity: 1; pointer-events: none; }
@@ -216,7 +216,7 @@
             <button data-tab="teacher" class="${state.tab==='teacher'?'active':''}">設備預約</button>
             ${checkIsAdmin(state.userData) ? `<button data-tab="admin" class="${state.tab==='admin'?'active':''}">管理後台</button>` : ''}
           </div>
-          <button class="btn ghost" style="padding:6px 12px; font-size:12px;" id="${isGuest ? 'loginBtn' : 'logoutBtn'}">${isGuest ? '登入系統' : '登出'}</button>
+          <button class="btn" style="padding:6px 12px; font-size:12px; background-color:#fef2f2; color:#991b1b; border:1px solid #fecaca; font-weight:700;" id="${isGuest ? 'loginBtn' : 'logoutBtn'}">${isGuest ? '登入系統' : '登出'}</button>
         </div>
       </div>
     `;
@@ -483,13 +483,33 @@
         return;
       }
 
-      try{
-        await callServer('addBooking', keyOf(state.modal.date, state.modal.periodIdx, cartId), {
-          date: state.modal.date, periodIdx: state.modal.periodIdx, cart: cartId,
-          className: className, teacher: document.getElementById('inputTeacher').value
+      const teacherName = document.getElementById('inputTeacher').value;
+      const dateStr = state.modal.date;
+      const periodIdx = state.modal.periodIdx;
+      const bKey = keyOf(dateStr, periodIdx, cartId);
+      
+      // 樂觀更新 (Optimistic UI)：先寫入前端 state 並立即關閉視窗重繪畫面
+      state.bookings[bKey] = {
+        date: dateStr, periodIdx: periodIdx, cart: cartId,
+        className: className, teacher: teacherName
+      };
+      state.modal = null;
+      render(); 
+
+      try {
+        // 在背景非同步發送 API 請求
+        await callServer('addBooking', bKey, {
+          date: dateStr, periodIdx: periodIdx, cart: cartId,
+          className: className, teacher: teacherName
         });
-        state.modal = null; await loadInitialData(); showToast('預約成功！');
-      }catch(err){ showToast(err.message); btn.disabled = false; }
+        await loadInitialData(); 
+        showToast('預約成功！');
+      } catch(err) { 
+        // 若伺服器回傳失敗(如被搶先預約)，則刪除假資料並還原畫面
+        delete state.bookings[bKey];
+        await loadInitialData(); 
+        showToast('預約失敗：' + err.message); 
+      }
     });
 
     // 系統參數設定
