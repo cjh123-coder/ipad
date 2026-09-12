@@ -110,7 +110,7 @@
   let state = {
     tab: 'teacher', viewStart: getStartOfToday(),
     bookings: {}, carts: [], sysSettings: { minLeadDays: 3, maxBookingDays: 7, maxWeeklyPeriods: 5 },
-    modal: null, cartModal: null, loaded: false, userData: null, confirmCancelKey: null, filterLocation: ''
+    modal: null, cartModal: null, loaded: false, userData: null, confirmCancelKey: null, filterLocation: '', warningModal: false
   };
 
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -120,6 +120,23 @@
   function keyOf(d, p, c){ return d+'|'+p+'|'+c; }
   function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
   function checkIsAdmin(user) { return user && ['admin', 'assistant', 'director', 'headmaster'].includes(user.roleId); }
+
+  function getMonday(dateStr) {
+    const d = new Date(dateStr + 'T00:00:00');
+    const day = d.getDay();
+    d.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
+    return fmt(d);
+  }
+  
+  function getWeeklyCount(dateStr) {
+    if (!state.userData || checkIsAdmin(state.userData)) return 0;
+    const targetMonday = getMonday(dateStr);
+    let count = 0;
+    Object.values(state.bookings).forEach(b => {
+      if (b.teacher && b.teacher.indexOf(state.userData.name) !== -1 && getMonday(b.date) === targetMonday) count++;
+    });
+    return count;
+  }
 
   function getBusinessDays(start, count) {
     let days = []; let d = new Date(start);
@@ -195,7 +212,7 @@
     state.loaded = true; 
     
     // 如果是靜默模式 (silent === true) 且預約視窗正在開啟中，則「不」觸發重繪，保護使用者輸入內容
-    if (!(silent && (state.modal || state.cartModal))) {
+    if (!(silent && (state.modal || state.cartModal || state.warningModal))) {
       render();
     }
   }
@@ -208,6 +225,7 @@
       ${state.modal ? renderModal() : ''}
       ${state.cartModal ? renderCartModal() : ''}
       ${state.confirmCancelKey ? renderCancelConfirm() : ''}
+      ${state.warningModal ? renderWarningModal() : ''}
     `;
     bindEvents();
   }
@@ -262,11 +280,15 @@
     });
 
     let isDisabled = false;
+    const weeklyCount = getWeeklyCount(dateStr);
+
     if (!adminMode) {
       if (diffDays < state.sysSettings.minLeadDays || diffDays > state.sysSettings.maxBookingDays) { 
         isDisabled = true; 
       } else if (availableCarts.length === 0 && activeCarts.length > 0) { 
         isDisabled = true; 
+      } else if (weeklyCount >= state.sysSettings.maxWeeklyPeriods) {
+        html += `<button class="add-booking-btn" data-limit="true" style="color:#991b1b; border-color:#fecaca; background-color:#fef2f2;">已達上限</button>`;
       } else if (availableCarts.length > 0) { 
         html += `<button class="add-booking-btn" data-date="${dateStr}" data-period="${periodIdx}">＋ 預約</button>`; 
       }
@@ -437,6 +459,21 @@
     `;
   }
 
+  function renderWarningModal() {
+    return `
+      <div class="overlay" id="warningOverlay" style="z-index:999;">
+        <div class="modal" style="text-align:center; max-width:320px; padding:30px 24px;">
+          <div style="font-size:48px; margin-bottom:12px;">☕</div>
+          <h3 style="color:#991b1b; margin:0 0 12px 0; font-size:20px;">本週額度已滿</h3>
+          <p style="color:var(--ink-soft); font-size:14px; margin-bottom:24px; line-height:1.6;">
+            您本週的借用已達 <strong>${state.sysSettings.maxWeeklyPeriods} 節</strong> 上限。<br>休息一下，把設備留給其他老師吧！
+          </p>
+          <button class="btn" style="width:100%; background-color:#fef2f2; color:#991b1b; border:1px solid #fecaca; font-weight:700;" id="closeWarningBtn">我知道了</button>
+        </div>
+      </div>
+    `;
+  }
+
   function bindEvents(){
     document.querySelectorAll('[data-tab]').forEach(btn=>{ btn.addEventListener('click', ()=>{ state.tab = btn.dataset.tab; render(); }); });
     if (document.getElementById('locationFilter')) document.getElementById('locationFilter').addEventListener('change', (e) => { state.filterLocation = e.target.value; render(); });
@@ -458,10 +495,17 @@
           window.location.replace(SSO_CENTER_URL + "?redirect=" + encodeURIComponent(CURRENT_APP_URL));
           return;
         }
+        if (btn.dataset.limit === "true") {
+          state.warningModal = true;
+          render();
+          return;
+        }
         state.modal = { date: btn.dataset.date, periodIdx: parseInt(btn.dataset.period,10) }; 
         render(); 
       }); 
     });
+    
+    if(document.getElementById('closeWarningBtn')) document.getElementById('closeWarningBtn').addEventListener('click', ()=>{ state.warningModal = false; render(); });
     
     document.querySelectorAll('[data-cancel-key]').forEach(el=>{ el.addEventListener('click', (e)=>{ e.stopPropagation(); state.confirmCancelKey = el.dataset.cancelKey; render(); }); });
 
