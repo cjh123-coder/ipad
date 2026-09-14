@@ -508,7 +508,13 @@
         </div>
         <div class="field"><label>限定對象 (留白代表全校開放，多筆以逗號分隔)</label><input type="text" id="cartReserved" value="${escapeHtml(c.reservedFor||'')}" placeholder="張三, 李四"></div>
         <div class="field"><label>適用班級 (留白代表全校開放；可填如：7 或 701, 702 或 701-705)</label><input type="text" id="cartAllowedClasses" value="${escapeHtml(c.allowedClasses||'')}" placeholder="例如：7 代表七年級全體；或 701-705"></div>
-        <div class="field" style="background:#f3f4f6; padding:10px; border-radius:6px;"><label style="margin:0;"><input type="checkbox" id="cartEnabled" ${c.enabled!==false ? 'checked' : ''}> 啟用開放預約</label></div>
+       <div class="field" style="background:#f3f4f6; padding:12px; border-radius:6px; display:flex; align-items:center; gap:12px;">
+  <div class="toggle-switch">
+    <input type="checkbox" id="cartEnabled" ${c.enabled !== false ? 'checked' : ''}>
+    <span class="toggle-slider"></span>
+  </div>
+  <label for="cartEnabled" style="margin:0; cursor:pointer; font-size:14px; font-weight:600;">啟用開放預約</label>
+</div>
         <div class="field"><label>不開放節次 (點擊反紅)</label>${gridHtml}</div>
         <div style="display:flex; gap:10px;"><button class="btn ghost" id="closeCartModal">取消</button><button class="btn primary" id="saveCartBtn">儲存設定</button></div>
       </div></div>
