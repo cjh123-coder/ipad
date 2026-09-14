@@ -419,9 +419,20 @@
         </table>
       </div>
 
-      <div style="display:flex; justify-content:space-between; margin-bottom:12px;"><h3>設備管理中心</h3><button class="btn primary" id="addCartBtn" style="padding:6px 12px;">＋ 新增平板車</button></div>
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+        <h3 style="margin:0;">設備管理中心</h3>
+        <button class="btn primary" id="addCartBtn" style="flex:none; padding:8px 24px; border-radius:99px; box-shadow:0 4px 6px -1px rgba(37,99,235,0.2); font-size:13.5px; letter-spacing:0.5px;">＋ 新增平板車</button>
+      </div>
       <table class="list-table" style="margin-bottom:40px;">
-        <thead><tr><th>名稱</th><th>放置地點</th><th>適用班級</th><th>保留對象</th><th>操作</th></tr></thead>
+        <thead>
+          <tr>
+            <th style="min-width:180px;">名稱</th>
+            <th style="min-width:100px;">放置地點</th>
+            <th style="min-width:150px;">適用班級</th>
+            <th>保留對象</th>
+            <th style="width:130px;">操作</th>
+          </tr>
+        </thead>
         <tbody>
           ${activeCarts.map(c => `<tr>
             <td style="font-weight:700;">${escapeHtml(c.name)} <span class="theme-${c.colorTheme}" style="padding:2px 6px; border-radius:4px; font-size:11px;">${THEMES[c.colorTheme]}</span></td>
