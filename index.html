@@ -44,10 +44,10 @@
   .desktop-table tbody th { background: #f9fafb; font-size: 13px; width: 65px; padding: 8px; height: auto; text-align: center; vertical-align: middle; }
   
   .slot-wrapper { display: flex; flex-direction: column; gap: 6px; min-height: 72px; height: 100%; padding: 8px; box-sizing: border-box; }
-  /* 移除灰底，保持純白背景；不可預約時游標顯示預設箭頭且不觸發點擊 */
-.slot-wrapper.disabled { background: #ffffff; pointer-events: none; }
-/* 若該時段不可預約但使用者有點選取消需求，讓裡面的取消按鈕維持可點擊 */
-.slot-wrapper.disabled .pill { pointer-events: auto; }
+  /* 修改：不塗灰，保持白色但禁止點擊 */
+  .slot-wrapper.disabled { background: #ffffff; pointer-events: none; }
+  /* 若不可預約，但自己有預約在裡面，讓取消按鈕維持可點 */
+  .slot-wrapper.disabled .pill { pointer-events: auto; }
   .slot-wrapper:not(.disabled):not(.admin-mode):hover { background: #f8fafc; box-shadow: inset 0 0 0 2px var(--accent); }
 
   .pill { position: relative; display: flex; flex-direction: column; align-items: center; padding: 6px 4px; border-radius: var(--radius-sm); font-size: 12.5px; font-weight: 700; }
@@ -122,7 +122,8 @@
   let state = {
     tab: 'teacher', viewStart: getStartOfToday(),
     bookings: {}, carts: [], sysSettings: { minLeadDays: 3, maxBookingDays: 7, maxWeeklyPeriods: 5 },
-    modal: null, cartModal: null, loaded: false, userData: null, confirmCancelKey: null, filterLocation: '', warningModal: false
+    modal: null, cartModal: null, loaded: false, userData: null, confirmCancelKey: null, filterLocation: '', warningModal: false,
+    locationErrorModal: null // 新增：保存地點錯誤提示資訊
   };
 
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
@@ -189,6 +190,24 @@
     return d;
   }
 
+  // 驗證班級是否符合設備規則
+  function isClassAllowed(inputClass, allowedPattern) {
+    if (!allowedPattern || !allowedPattern.trim()) return true;
+    const c = String(inputClass).trim();
+    const rules = allowedPattern.split(',').map(s => s.trim());
+    for (const r of rules) {
+      if (!r) continue;
+      if (r.includes('-')) {
+        const [min, max] = r.split('-').map(Number);
+        const cur = Number(c);
+        if (!isNaN(min) && !isNaN(max) && !isNaN(cur) && cur >= min && cur <= max) return true;
+      } else {
+        if (c === r || c.startsWith(r)) return true;
+      }
+    }
+    return false;
+  }
+
   function showToast(msg){
     const existing = document.getElementById('sys-toast');
     if (existing) existing.remove();
@@ -249,7 +268,7 @@
     } catch(e){}
     state.loaded = true; 
     
-    if (!(silent && (state.modal || state.cartModal || state.warningModal))) {
+    if (!(silent && (state.modal || state.cartModal || state.warningModal || state.locationErrorModal))) {
       render();
     }
   }
@@ -263,6 +282,7 @@
       ${state.cartModal ? renderCartModal() : ''}
       ${state.confirmCancelKey ? renderCancelConfirm() : ''}
       ${state.warningModal ? renderWarningModal() : ''}
+      ${state.locationErrorModal ? renderLocationErrorModal() : ''}
     `;
     bindEvents();
   }
@@ -343,7 +363,7 @@
     const locFilter = `<select id="locationFilter" style="padding:6px; border:1px solid var(--border); border-radius:4px;"><option value="">全部地點</option>${locs.map(l => `<option value="${escapeHtml(l)}" ${state.filterLocation===l?'selected':''}>${escapeHtml(l)}</option>`).join('')}</select>`;
     
     return `
-        <div class="weeknav" style="justify-content: space-between; align-items: center; margin-bottom: 20px;">
+      <div class="weeknav" style="justify-content: space-between; align-items: center; margin-bottom: 20px;">
         <div class="notice" style="margin-bottom: 0; padding: 6px 14px;">💡 借用規則：至少 <strong>${state.sysSettings.minLeadDays} 天前</strong>預約，最遠預約 <strong>${state.sysSettings.maxBookingDays} 天</strong>，單週額度上限 <strong>${state.sysSettings.maxWeeklyPeriods} 節</strong>。可隨時於 1 天前自主點擊 ✖ 取消。</div>
         <div style="display:flex; gap:8px; align-items:center;">
           ${locFilter}
@@ -355,15 +375,13 @@
       <div class="table-wrap">
         <table class="desktop-table">
           <thead><tr><th>時段</th>${dates.map(d => {
-  const diff = daysBetween(getStartOfToday(), d);
-  const isBlocked = diff < state.sysSettings.minLeadDays || diff > state.sysSettings.maxBookingDays;
-  // 精緻膠囊標籤：不可預約顯示極淡灰，可預約顯示淡綠「開放借用」
-  const statusBadge = isBlocked 
-    ? `<div style="margin-top:6px;"><span style="display:inline-block; font-size:11px; padding:2px 8px; border-radius:99px; background:#f3f4f6; color:#6b7280; font-weight:500;">借用截止</span></div>`
-    : `<div style="margin-top:6px;"><span style="display:inline-block; font-size:11px; padding:2px 8px; border-radius:99px; background:#ecfdf5; color:#059669; font-weight:600;">開放借用</span></div>`;
-
-  return `<th><div>週${WEEKDAY_LABEL[d.getDay()]} <span class="date" style="font-weight:700;">${d.getMonth()+1}/${d.getDate()}</span></div>${statusBadge}</th>`;
-}).join('')}</tr></thead>
+            const diff = daysBetween(getStartOfToday(), d);
+            const isBlocked = diff < state.sysSettings.minLeadDays || diff > state.sysSettings.maxBookingDays;
+            const statusBadge = isBlocked 
+              ? `<div style="margin-top:6px;"><span style="display:inline-block; font-size:11px; padding:2px 8px; border-radius:99px; background:#f3f4f6; color:#6b7280; font-weight:500;">借用截止</span></div>`
+              : `<div style="margin-top:6px;"><span style="display:inline-block; font-size:11px; padding:2px 8px; border-radius:99px; background:#ecfdf5; color:#059669; font-weight:600;">開放借用</span></div>`;
+            return `<th><div>週${WEEKDAY_LABEL[d.getDay()]} <span class="date" style="font-weight:700;">${d.getMonth()+1}/${d.getDate()}</span></div>${statusBadge}</th>`;
+          }).join('')}</tr></thead>
           <tbody>${PERIODS.map((label, pIdx) => `<tr><th>${label}</th>${dates.map(d => {
             const cell = getCellContent(d, pIdx, false);
             return `<td><div class="slot-wrapper ${cell.isDisabled ? 'disabled' : ''}">${cell.html}</div></td>`;
@@ -398,11 +416,12 @@
 
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;"><h3>設備管理中心</h3><button class="btn primary" id="addCartBtn" style="padding:6px 12px;">＋ 新增平板車</button></div>
       <table class="list-table" style="margin-bottom:40px;">
-        <thead><tr><th>名稱</th><th>放置地點</th><th>保留對象</th><th>操作</th></tr></thead>
+        <thead><tr><th>名稱</th><th>放置地點</th><th>適用班級</th><th>保留對象</th><th>操作</th></tr></thead>
         <tbody>
           ${activeCarts.map(c => `<tr>
             <td style="font-weight:700;">${escapeHtml(c.name)} <span class="theme-${c.colorTheme}" style="padding:2px 6px; border-radius:4px; font-size:11px;">${THEMES[c.colorTheme]}</span></td>
             <td>${escapeHtml(c.location || '-')}</td>
+            <td style="color:#2563eb; font-weight:600;">${escapeHtml(c.allowedClasses || '全校開放')}</td>
             <td style="color:var(--danger); font-weight:600;">${escapeHtml(c.reservedFor || '全校開放')}</td>
             <td><button class="edit-cart-btn btn ghost" data-id="${c.cartId}" style="padding:4px 8px;">編輯</button> <button class="delete-cart-btn btn danger" data-id="${c.cartId}" style="padding:4px 8px;">刪除</button></td>
           </tr>`).join('')}
@@ -482,6 +501,7 @@
           <div class="field"><label>標籤</label><select id="cartTheme">${Object.keys(THEMES).map(k => `<option value="${k}" ${c.colorTheme===k?'selected':''}>${THEMES[k]}</option>`).join('')}</select></div>
         </div>
         <div class="field"><label>限定對象 (留白代表全校開放，多筆以逗號分隔)</label><input type="text" id="cartReserved" value="${escapeHtml(c.reservedFor||'')}" placeholder="張三, 李四"></div>
+        <div class="field"><label>適用班級 (留白代表全校開放；可填如：7 或 701, 702 或 701-705)</label><input type="text" id="cartAllowedClasses" value="${escapeHtml(c.allowedClasses||'')}" placeholder="例如：7 代表七年級全體；或 701-705"></div>
         <div class="field" style="background:#f3f4f6; padding:10px; border-radius:6px;"><label style="margin:0;"><input type="checkbox" id="cartEnabled" ${c.enabled!==false ? 'checked' : ''}> 啟用開放預約</label></div>
         <div class="field"><label>不開放節次 (點擊反紅)</label>${gridHtml}</div>
         <div style="display:flex; gap:10px;"><button class="btn ghost" id="closeCartModal">取消</button><button class="btn primary" id="saveCartBtn">儲存設定</button></div>
@@ -512,6 +532,40 @@
             您本週的借用已達 <strong>${state.sysSettings.maxWeeklyPeriods} 節</strong> 上限。<br>休息一下，把設備留給其他老師吧！
           </p>
           <button class="btn" style="width:100%; background-color:#fef2f2; color:#991b1b; border:1px solid #fecaca; font-weight:700;" id="closeWarningBtn">我知道了</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderLocationErrorModal() {
+    if (!state.locationErrorModal) return '';
+    const { className, currentCart, suggestedCarts } = state.locationErrorModal;
+    
+    let suggestionHtml = '';
+    if (suggestedCarts.length > 0) {
+      suggestionHtml = `
+        <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:12px; margin:16px 0; text-align:left;">
+          <div style="font-weight:700; color:#1e40af; margin-bottom:6px;">👉 適用本班級之設備與地點：</div>
+          <ul style="margin:0; padding-left:20px; font-size:13.5px; color:#1e3a8a;">
+            ${suggestedCarts.map(c => `<li><strong>${escapeHtml(c.name)}</strong> (放置於：<strong>${escapeHtml(c.location || '未標註地點')}</strong>)</li>`).join('')}
+          </ul>
+        </div>
+      `;
+    } else {
+      suggestionHtml = `<div style="color:var(--danger); margin:15px 0; font-size:13px;">目前系統中未設定適用於 <strong>${escapeHtml(className)}</strong> 班的設備，請洽系統管理員。</div>`;
+    }
+
+    return `
+      <div class="overlay" id="locationErrorOverlay" style="z-index:999;">
+        <div class="modal" style="text-align:center; max-width:420px; padding:28px 24px;">
+          <div style="font-size:44px; margin-bottom:10px;">🏢</div>
+          <h3 style="color:#991b1b; margin:0 0 10px 0; font-size:19px;">教學大樓／設備不符</h3>
+          <p style="color:var(--ink-soft); font-size:14px; margin:0; line-height:1.6;">
+            <strong>${escapeHtml(className)}</strong> 班無法借用 <strong>${escapeHtml(currentCart.name)}</strong><br>
+            (該設備放置於：<strong>${escapeHtml(currentCart.location || '未標註地點')}</strong>)
+          </p>
+          ${suggestionHtml}
+          <button class="btn primary" style="width:100%; margin-top:8px;" id="closeLocationErrorBtn">回預約頁面重選</button>
         </div>
       </div>
     `;
@@ -549,6 +603,7 @@
     });
     
     if(document.getElementById('closeWarningBtn')) document.getElementById('closeWarningBtn').addEventListener('click', ()=>{ state.warningModal = false; render(); });
+    if(document.getElementById('closeLocationErrorBtn')) document.getElementById('closeLocationErrorBtn').addEventListener('click', ()=>{ state.locationErrorModal = null; render(); });
     
     document.querySelectorAll('[data-cancel-key]').forEach(el=>{ el.addEventListener('click', (e)=>{ e.stopPropagation(); state.confirmCancelKey = el.dataset.cancelKey; render(); }); });
 
@@ -591,6 +646,25 @@
         document.getElementById('inputClassName').focus();
         btn.disabled = false;
         return;
+      }
+
+      // === 驗證：非管理員且設備有設定適用班級 ===
+      const isAdminUser = checkIsAdmin(state.userData);
+      const selectedCart = state.carts.find(c => c.cartId === cartId);
+      
+      if (!isAdminUser && selectedCart && selectedCart.allowedClasses) {
+        if (!isClassAllowed(className, selectedCart.allowedClasses)) {
+          // 找出適合該班級的設備清單
+          const suggestedCarts = state.carts.filter(c => c.enabled && isClassAllowed(className, c.allowedClasses));
+          state.locationErrorModal = {
+            className: className,
+            currentCart: selectedCart,
+            suggestedCarts: suggestedCarts
+          };
+          render();
+          btn.disabled = false;
+          return;
+        }
       }
 
       const teacherName = document.getElementById('inputTeacher').value;
@@ -666,6 +740,7 @@
           name: cName,
           location: document.getElementById('cartLoc').value, colorTheme: document.getElementById('cartTheme').value,
           enabled: document.getElementById('cartEnabled').checked, reservedFor: document.getElementById('cartReserved').value,
+          allowedClasses: document.getElementById('cartAllowedClasses').value.trim(),
           blockedPeriods: Array.from(document.querySelectorAll('.grid-cell.is-blocked')).map(cell => `${cell.dataset.day}_${cell.dataset.period}`)
         });
         state.cartModal = null; await loadInitialData(); showToast('設備已更新');
@@ -686,7 +761,7 @@
   });
 
   setInterval(() => {
-    if (state.loaded && !state.modal && !state.cartModal && !state.warningModal && !state.confirmCancelKey) {
+    if (state.loaded && !state.modal && !state.cartModal && !state.warningModal && !state.confirmCancelKey && !state.locationErrorModal) {
       if (state.userData && !enforceLocalSession()) {
         showToast('前次登入已逾時，已切換為訪客模式');
         render();
