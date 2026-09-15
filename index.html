@@ -464,7 +464,7 @@
       </div>
       <div class="table-wrap" style="margin-bottom:24px;">
         <table class="desktop-table">
-          <thead><tr><th>時段</th>${dates.map(d => `<th>週${WEEKDAY_LABEL[d.getDay()]} <span class="date">${d.getMonth()+1}/${d.getDate()}</span></th>`).join('')}</tr></thead>
+          <thead><tr><th>時段</th>${dates.map(d => `<th><span class="date">${d.getMonth()+1}/${d.getDate()}</span> 週${WEEKDAY_LABEL[d.getDay()]}</th>`).join('')}</tr></thead>
           <tbody>${PERIODS.map((label, pIdx) => `<tr><th>${label}</th>${dates.map(d => `<td><div class="slot-wrapper admin-mode">${getCellContent(d, pIdx, true).html}</div></td>`).join('')}</tr>`).join('')}</tbody>
         </table>
       </div>
