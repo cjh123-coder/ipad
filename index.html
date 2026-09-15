@@ -413,7 +413,7 @@
             const statusBadge = isBlocked 
               ? `<div style="margin-top:6px;"><span style="display:inline-block; font-size:11px; padding:2px 8px; border-radius:99px; background:#f3f4f6; color:#6b7280; font-weight:500;">借用截止</span></div>`
               : `<div style="margin-top:6px;"><span style="display:inline-block; font-size:11px; padding:2px 8px; border-radius:99px; background:#ecfdf5; color:#059669; font-weight:600;">開放借用</span></div>`;
-            return `<th><div>週${WEEKDAY_LABEL[d.getDay()]} <span class="date" style="font-weight:700;">${d.getMonth()+1}/${d.getDate()}</span></div>${statusBadge}</th>`;
+            return `<th><div><span class="date" style="font-weight:700;">${d.getMonth()+1}/${d.getDate()}</span> 週${WEEKDAY_LABEL[d.getDay()]}</div>${statusBadge}</th>`;
           }).join('')}</tr></thead>
           <tbody>${PERIODS.map((label, pIdx) => `<tr><th>${label}</th>${dates.map(d => {
             const cell = getCellContent(d, pIdx, false);
