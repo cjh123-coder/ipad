@@ -56,10 +56,7 @@
   .slot-wrapper:not(.disabled):hover .add-booking-btn { opacity: 1; pointer-events: auto; }
   
   @media (hover: none), (pointer: coarse) {
-    .add-booking-btn {
-      opacity: 1 !important;
-      pointer-events: auto !important;
-    }
+    .add-booking-btn { opacity: 1 !important; pointer-events: auto !important; }
   }
 
   .status-text { font-size: 12px; font-weight: 600; color: #9ca3af; text-align: center; margin-top: 8px; }
@@ -118,7 +115,7 @@
 
   let state = {
     tab: 'teacher', viewStart: getStartOfToday(),
-    bookings: {}, carts: [], sysSettings: { minLeadDays: 3, maxBookingDays: 7, maxWeeklyPeriods: 5, adminNames: "" },
+    bookings: {}, carts: [], sysSettings: { minLeadDays: 3, maxBookingDays: 7, maxWeeklyPeriods: 5, locationAdmins: {} },
     modal: null, cartModal: null, loaded: false, userData: null, confirmCancelKey: null, filterLocation: '', warningModal: false,
     locationErrorModal: null
   };
@@ -130,14 +127,25 @@
   function keyOf(d, p, c){ return d+'|'+p+'|'+c; }
   function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
   
-  function checkIsAdmin(user) { 
-    if (!user) return false;
-    if (['admin', 'assistant', 'director', 'headmaster'].includes(user.roleId)) return true;
-    if (state.sysSettings && state.sysSettings.adminNames) {
-      const allowedAdmins = state.sysSettings.adminNames.split(',').map(s => s.trim());
-      if (allowedAdmins.includes(user.name)) return true;
+  // 權限驗證邏輯
+  function checkIsSuperAdmin(user) { 
+    return user && ['admin', 'assistant', 'director', 'headmaster'].includes(user.roleId);
+  }
+
+  function getManagedLocations(user) {
+    if (!user) return [];
+    const locAdmins = state.sysSettings.locationAdmins || {};
+    const managed = [];
+    for (const loc in locAdmins) {
+      const admins = locAdmins[loc].split(',').map(s => s.trim());
+      if (admins.includes(user.name)) managed.push(loc);
     }
-    return false;
+    return managed;
+  }
+
+  function checkHasAnyAdminRights(user) {
+    if (checkIsSuperAdmin(user)) return true;
+    return getManagedLocations(user).length > 0;
   }
 
   function matchUser(fieldValue, userName) {
@@ -168,7 +176,7 @@
   }
   
   function getWeeklyCount(dateStr) {
-    if (!state.userData || checkIsAdmin(state.userData)) return 0;
+    if (!state.userData || checkIsSuperAdmin(state.userData)) return 0;
     const targetMonday = getMonday(dateStr);
     let count = 0;
     Object.values(state.bookings).forEach(b => {
@@ -295,7 +303,9 @@
   function renderTopbar(){
     const activeCarts = state.carts.filter(c => c.enabled);
     const isGuest = !state.userData;
-    const adminTag = checkIsAdmin(state.userData) ? ' (管理員)' : '';
+    const isSuper = checkIsSuperAdmin(state.userData);
+    const hasAdminRights = checkHasAnyAdminRights(state.userData);
+    const adminTag = isSuper ? ' (系統管理員)' : (hasAdminRights ? ' (地點管理員)' : '');
     const welcomeText = isGuest ? '<strong style="color:var(--ink-soft);">訪客模式 (請登入以預約)</strong>' : `歡迎，<strong style="color:var(--accent);">${escapeHtml(state.userData?.name || '')}</strong> 老師${adminTag}`;
     
     return `
@@ -304,7 +314,7 @@
         <div style="display:flex; align-items:center; gap:10px;">
           <div class="tabs">
             <button data-tab="teacher" class="${state.tab==='teacher'?'active':''}">設備預約</button>
-            ${checkIsAdmin(state.userData) ? `<button data-tab="admin" class="${state.tab==='admin'?'active':''}">管理後台</button>` : ''}
+            ${hasAdminRights ? `<button data-tab="admin" class="${state.tab==='admin'?'active':''}">管理後台</button>` : ''}
           </div>
           <button class="btn" style="padding:6px 12px; font-size:12px; background-color:#fef2f2; color:#991b1b; border:1px solid #fecaca; font-weight:700;" id="${isGuest ? 'loginBtn' : 'logoutBtn'}">${isGuest ? '登入系統' : '登出'}</button>
         </div>
@@ -317,15 +327,33 @@
     const day = date.getDay();
     const today = getStartOfToday();
     const diffDays = daysBetween(today, date);
-    const activeCarts = state.filterLocation ? state.carts.filter(c => (c.location || '').trim() === state.filterLocation) : state.carts;
+    
+    const isSuper = checkIsSuperAdmin(state.userData);
+    const managedLocs = getManagedLocations(state.userData);
+    
+    let currentCarts = state.carts;
+    // 管理員視角：地點管理員只看到管轄地點
+    if (adminMode && !isSuper) {
+       currentCarts = currentCarts.filter(c => managedLocs.includes((c.location||'').trim()));
+    }
+    // 套用下拉選單過濾
+    if (state.filterLocation) {
+       currentCarts = currentCarts.filter(c => (c.location || '').trim() === state.filterLocation);
+    }
     
     let html = '';
-    const cellBookings = activeCarts.map(c => state.bookings[keyOf(dateStr, periodIdx, c.cartId)]).filter(b => b);
+    const cellBookings = currentCarts.map(c => state.bookings[keyOf(dateStr, periodIdx, c.cartId)]).filter(b => b);
     
     cellBookings.forEach(b => {
-      const cartInfo = activeCarts.find(c => c.cartId === b.cart) || {name: '未知', colorTheme: 'gray'};
+      const cartInfo = currentCarts.find(c => c.cartId === b.cart) || {name: '未知', colorTheme: 'gray', location: ''};
       const isMine = !adminMode && state.userData && matchUser(b.teacher, state.userData.name);
-      const canCancel = adminMode || (isMine && date.getTime() > today.getTime());
+      
+      let canCancel = false;
+      if (adminMode) {
+        canCancel = isSuper || managedLocs.includes(cartInfo.location);
+      } else {
+        canCancel = isMine && date.getTime() > today.getTime();
+      }
       
       const attr = canCancel ? `data-cancel-key="${keyOf(dateStr, periodIdx, b.cart)}" style="cursor:pointer;" title="點擊取消"` : `title="${escapeHtml(b.className)} / ${escapeHtml(b.teacher)}"`;
       const xBtn = canCancel ? `<div class="x-btn">✖</div>` : '';
@@ -333,7 +361,7 @@
       html += `<div class="pill theme-${cartInfo.colorTheme}" ${attr}>${xBtn}<span>${escapeHtml(cartInfo.name)} ${escapeHtml(b.className)}</span><span class="who">${escapeHtml(b.teacher)}</span></div>`;
     });
 
-    const availableCarts = activeCarts.filter(c => {
+    const availableCarts = currentCarts.filter(c => {
       if (!c.enabled || (c.blockedPeriods || []).includes(`${day}_${periodIdx}`) || state.bookings[keyOf(dateStr, periodIdx, c.cartId)]) return false;
       if (!adminMode && c.reservedFor) {
         if (!state.userData || !c.reservedFor.split(',').map(s=>s.trim()).includes(state.userData.name)) return false;
@@ -347,7 +375,7 @@
     if (!adminMode) {
       if (diffDays < state.sysSettings.minLeadDays || diffDays > state.sysSettings.maxBookingDays) { 
         isDisabled = true; 
-      } else if (availableCarts.length === 0 && activeCarts.length > 0) { 
+      } else if (availableCarts.length === 0 && currentCarts.length > 0) { 
         isDisabled = true; 
       } else if (weeklyCount >= state.sysSettings.maxWeeklyPeriods) {
         html += `<button class="add-booking-btn" data-limit="true" style="color:#991b1b; border-color:#fecaca; background-color:#fef2f2;">已達上限</button>`;
@@ -399,12 +427,34 @@
   function renderAdmin(){
     const dates = getBusinessDays(state.viewStart, 5);
     const locs = [...new Set(state.carts.map(c => (c.location || '').trim()).filter(Boolean))];
-    const locFilter = `<select id="locationFilter" style="padding:6px; border:1px solid var(--border); border-radius:4px;"><option value="">全部地點</option>${locs.map(l => `<option value="${escapeHtml(l)}" ${state.filterLocation===l?'selected':''}>${escapeHtml(l)}</option>`).join('')}</select>`;
-    const activeCarts = state.filterLocation ? state.carts.filter(c => (c.location || '').trim() === state.filterLocation) : state.carts;
+    
+    const isSuper = checkIsSuperAdmin(state.userData);
+    const managedLocs = getManagedLocations(state.userData);
+    const allowedLocs = isSuper ? locs : locs.filter(l => managedLocs.includes(l));
+    
+    if (!isSuper && (!state.filterLocation || !allowedLocs.includes(state.filterLocation))) {
+        state.filterLocation = allowedLocs[0] || '';
+    }
+
+    const locFilterOptions = isSuper ? `<option value="">全部地點</option>` : '';
+    const locFilter = `<select id="locationFilter" style="padding:6px; border:1px solid var(--border); border-radius:4px;">${locFilterOptions}${allowedLocs.map(l => `<option value="${escapeHtml(l)}" ${state.filterLocation===l?'selected':''}>${escapeHtml(l)}</option>`).join('')}</select>`;
+    
+    const adminActiveCarts = state.filterLocation 
+       ? state.carts.filter(c => (c.location || '').trim() === state.filterLocation) 
+       : state.carts.filter(c => allowedLocs.includes((c.location || '').trim()));
+
+    // 產生全域設定中的地點管理員清單
+    const locAdmins = state.sysSettings.locationAdmins || {};
+    const locAdminInputs = locs.map(loc => `
+      <div style="flex:1; min-width:200px;">
+        <label style="font-size:12px; color:var(--ink-soft); margin-bottom:4px; display:block;">管理員 - ${escapeHtml(loc)}</label>
+        <input type="text" class="locAdminInput" data-loc="${escapeHtml(loc)}" value="${escapeHtml(locAdmins[loc] || '')}" style="width:100%; padding:6px; font-size:13px;" placeholder="張三, 李四">
+      </div>
+    `).join('');
 
     return `
       <div class="weeknav">
-        <h3>強制管理總表 (點擊方塊可刪除任何預約)</h3>
+        <h3>強制管理總表 (可點擊方塊代借或取消)</h3>
         <div style="display:flex; gap:8px; align-items:center;">
           ${locFilter}
           <button class="nav-btn" data-nav="-5">‹</button>
@@ -419,9 +469,9 @@
         </table>
       </div>
 
-<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
         <h3 style="margin:0;">設備管理中心</h3>
-        <button class="btn primary" id="addCartBtn" style="flex:none; padding:8px 24px; border-radius:99px; box-shadow:0 4px 6px -1px rgba(37,99,235,0.2); font-size:13.5px; letter-spacing:0.5px;">＋ 新增平板車</button>
+        ${isSuper ? `<button class="btn primary" id="addCartBtn" style="flex:none; padding:8px 24px; border-radius:99px; box-shadow:0 4px 6px -1px rgba(37,99,235,0.2); font-size:13.5px; letter-spacing:0.5px;">＋ 新增平板車</button>` : ''}
       </div>
       <table class="list-table" style="margin-bottom:40px;">
         <thead>
@@ -434,26 +484,37 @@
           </tr>
         </thead>
         <tbody>
-          ${activeCarts.map(c => `<tr>
+          ${adminActiveCarts.map(c => `<tr>
             <td style="font-weight:700;">${escapeHtml(c.name)} <span class="theme-${c.colorTheme}" style="padding:2px 6px; border-radius:4px; font-size:11px;">${THEMES[c.colorTheme]}</span></td>
             <td>${escapeHtml(c.location || '-')}</td>
             <td style="color:#2563eb; font-weight:600;">${escapeHtml(c.allowedClasses || '全校開放')}</td>
             <td style="color:var(--danger); font-weight:600;">${escapeHtml(c.reservedFor || '全校開放')}</td>
-            <td><button class="edit-cart-btn btn ghost" data-id="${c.cartId}" style="padding:4px 8px;">編輯</button> <button class="delete-cart-btn btn danger" data-id="${c.cartId}" style="padding:4px 8px;">刪除</button></td>
+            <td>
+              <button class="edit-cart-btn btn ghost" data-id="${c.cartId}" style="padding:4px 8px;">編輯</button>
+              ${isSuper ? `<button class="delete-cart-btn btn danger" data-id="${c.cartId}" style="padding:4px 8px; margin-left:4px;">刪除</button>` : ''}
+            </td>
           </tr>`).join('')}
         </tbody>
       </table>
 
-      <div style="background:white; padding:15px; border:1px solid var(--border); border-radius:8px; margin-bottom:20px;">
-        <h3>⚙️ 全域預約規則設定</h3>
+      ${isSuper ? `
+      <div style="background:white; padding:20px; border:1px solid var(--border); border-radius:8px; margin-bottom:20px;">
+        <h3 style="margin-bottom:16px;">⚙️ 全域預約規則設定</h3>
         <div style="display:flex; gap:15px; margin-top:10px; flex-wrap:wrap; align-items:flex-end;">
-          <div><label>提前天數</label><input type="number" id="sysMin" value="${state.sysSettings.minLeadDays}" style="width:70px; padding:4px;" min="0"></div>
-          <div><label>最遠天數</label><input type="number" id="sysMax" value="${state.sysSettings.maxBookingDays}" style="width:70px; padding:4px;" min="0"></div>
-          <div><label>單週節數上限</label><input type="number" id="sysWeek" value="${state.sysSettings.maxWeeklyPeriods}" style="width:70px; padding:4px;" min="0"></div>
-          <div><label>管理員名單 (逗號分隔)</label><input type="text" id="sysAdmins" value="${escapeHtml(state.sysSettings.adminNames || '')}" style="width:200px; padding:4px;" placeholder="例如: 張三, 李四"></div>
-          <div><button id="saveSysBtn" class="btn primary" style="padding:6px 15px;">儲存規則</button></div>
+          <div><label style="font-size:12px; color:var(--ink-soft); margin-bottom:4px; display:block;">提前天數</label><input type="number" id="sysMin" value="${state.sysSettings.minLeadDays}" style="width:80px; padding:6px; font-size:13px;" min="0"></div>
+          <div><label style="font-size:12px; color:var(--ink-soft); margin-bottom:4px; display:block;">最遠天數</label><input type="number" id="sysMax" value="${state.sysSettings.maxBookingDays}" style="width:80px; padding:6px; font-size:13px;" min="0"></div>
+          <div><label style="font-size:12px; color:var(--ink-soft); margin-bottom:4px; display:block;">單週節數上限</label><input type="number" id="sysWeek" value="${state.sysSettings.maxWeeklyPeriods}" style="width:80px; padding:6px; font-size:13px;" min="0"></div>
+        </div>
+        <hr style="border:0; border-top:1px solid var(--border-soft); margin:20px 0;">
+        <h4 style="margin:0 0 12px 0; color:#374151;">各區地點管理員 (多位以逗號分隔，免輸入最高管理員)</h4>
+        <div style="display:flex; gap:15px; flex-wrap:wrap; align-items:flex-end;">
+          ${locAdminInputs}
+          <div style="width:100%; text-align:right; margin-top:10px;">
+            <button id="saveSysBtn" class="btn primary" style="padding:8px 24px; border-radius:99px; font-size:13.5px; box-shadow:0 4px 6px -1px rgba(37,99,235,0.2);">儲存全域設定</button>
+          </div>
         </div>
       </div>
+      ` : ''}
     `;
   }
 
@@ -462,15 +523,26 @@
     const { date, periodIdx } = state.modal;
     const d = new Date(date + 'T00:00:00');
     const day = d.getDay();
-    const activeCarts = state.filterLocation ? state.carts.filter(c => (c.location || '').trim() === state.filterLocation) : state.carts;
     
-    const availableCarts = activeCarts.filter(c => {
+    const isSuper = checkIsSuperAdmin(state.userData);
+    const managedLocs = getManagedLocations(state.userData);
+
+    const availableCarts = state.filterLocation ? state.carts.filter(c => (c.location || '').trim() === state.filterLocation) : state.carts;
+    
+    let modalCarts = availableCarts.filter(c => {
       if (!c.enabled || (c.blockedPeriods || []).includes(`${day}_${periodIdx}`) || state.bookings[keyOf(date, periodIdx, c.cartId)]) return false;
-      if (!checkIsAdmin(state.userData) && c.reservedFor) {
-        if (!c.reservedFor.split(',').map(s=>s.trim()).includes(state.userData.name)) return false;
+      if (!isSuper) {
+        if (managedLocs.includes(c.location)) return true; // location admin bypass
+        if (c.reservedFor) {
+          if (!c.reservedFor.split(',').map(s=>s.trim()).includes(state.userData.name)) return false;
+        }
       }
       return true;
     });
+
+    if (state.tab === 'admin' && !isSuper) {
+       modalCarts = modalCarts.filter(c => managedLocs.includes(c.location));
+    }
 
     return `
       <div class="overlay" id="overlay"><div class="modal">
@@ -478,7 +550,7 @@
         <div class="field">
           <label>選擇設備</label>
           <div style="display:flex; flex-direction:column; gap:10px; margin-top:8px;">
-            ${availableCarts.length > 0 ? availableCarts.map(c => `
+            ${modalCarts.length > 0 ? modalCarts.map(c => `
               <label style="display:flex; align-items:center; gap:10px; font-weight:500; cursor:pointer;">
                 <div class="toggle-switch">
                   <input type="radio" name="inputCart" value="${c.cartId}">
@@ -490,7 +562,7 @@
           </div>
         </div>
         <div class="field"><label>使用班級 <span style="color:red;">*</span></label><input type="text" id="inputClassName" placeholder="701" required></div>
-        <div class="field"><label>任課教師</label><input type="text" id="inputTeacher" value="${escapeHtml(state.userData?.name || '')}" ${checkIsAdmin(state.userData) ? '' : 'readonly style="background-color:#f3f4f6; color:var(--ink-soft); cursor:not-allowed;"'}></div>
+        <div class="field"><label>任課教師</label><input type="text" id="inputTeacher" value="${escapeHtml(state.userData?.name || '')}" ${checkIsSuperAdmin(state.userData) ? '' : 'readonly style="background-color:#f3f4f6; color:var(--ink-soft); cursor:not-allowed;"'}></div>
         <div style="display:flex; gap:10px;"><button class="btn ghost" id="closeModal">取消</button><button class="btn primary" id="confirmBookingBtn">確定預約</button></div>
       </div></div>
     `;
@@ -498,6 +570,10 @@
 
   function renderCartModal() {
     const c = state.cartModal;
+    const isSuper = checkIsSuperAdmin(state.userData);
+    const readOnlyAttr = isSuper ? '' : 'readonly style="background-color:#f3f4f6; color:var(--ink-soft); cursor:not-allowed;"';
+    const disabledAttr = isSuper ? '' : 'disabled style="background-color:#f3f4f6; color:var(--ink-soft); cursor:not-allowed;"';
+
     let gridHtml = `<table class="block-grid"><thead><tr><th></th><th>一</th><th>二</th><th>三</th><th>四</th><th>五</th></tr></thead><tbody>`;
     PERIODS.forEach((pName, pIdx) => {
       gridHtml += `<tr><td>${pName}</td>`;
@@ -513,22 +589,19 @@
       <div class="overlay" id="cartOverlay"><div class="modal" style="max-width:500px;">
         <h3>平板車設定</h3>
         <div style="display:flex; gap:10px;">
-          <div class="field" style="flex:1;"><label>名稱 <span style="color:red;">*</span></label><input type="text" id="cartName" value="${escapeHtml(c.name||'')}"></div>
-          <div class="field" style="flex:1;"><label>地點</label><input type="text" id="cartLoc" value="${escapeHtml(c.location||'')}"></div>
-          <div class="field"><label>標籤</label><select id="cartTheme">${Object.keys(THEMES).map(k => `<option value="${k}" ${c.colorTheme===k?'selected':''}>${THEMES[k]}</option>`).join('')}</select></div>
+          <div class="field" style="flex:1;"><label>名稱 <span style="color:red;">*</span></label><input type="text" id="cartName" value="${escapeHtml(c.name||'')}" ${readOnlyAttr}></div>
+          <div class="field" style="flex:1;"><label>地點</label><input type="text" id="cartLoc" value="${escapeHtml(c.location||'')}" ${readOnlyAttr}></div>
+          <div class="field"><label>標籤</label><select id="cartTheme" ${disabledAttr}>${Object.keys(THEMES).map(k => `<option value="${k}" ${c.colorTheme===k?'selected':''}>${THEMES[k]}</option>`).join('')}</select></div>
         </div>
-        <div class="field"><label>限定對象 (留白代表全校開放，多筆以逗號分隔)</label><input type="text" id="cartReserved" value="${escapeHtml(c.reservedFor||'')}" placeholder="張三, 李四"></div>
-        <div class="field"><label>適用班級 (留白代表全校開放；可填如：7 或 701, 702 或 701-705)</label><input type="text" id="cartAllowedClasses" value="${escapeHtml(c.allowedClasses||'')}" placeholder="例如：7 代表七年級全體；或 701-705"></div>
+        <div class="field"><label>限定對象 (留白代表全校開放，多筆以逗號分隔)</label><input type="text" id="cartReserved" value="${escapeHtml(c.reservedFor||'')}" placeholder="張三, 李四" ${readOnlyAttr}></div>
+        <div class="field"><label>適用班級 (留白代表全校開放；可填如：7 或 701, 702 或 701-705)</label><input type="text" id="cartAllowedClasses" value="${escapeHtml(c.allowedClasses||'')}" placeholder="例如：7 代表七年級全體；或 701-705" ${readOnlyAttr}></div>
         
-        <!-- 修改為帶有文字的滑動開關 -->
-        <div class="field" style="background:#f3f4f6; padding:12px; border-radius:6px;">
-          <label style="display:flex; align-items:center; gap:12px; margin:0; cursor:pointer;">
-            <div class="toggle-switch">
-              <input type="checkbox" id="cartEnabled" ${c.enabled !== false ? 'checked' : ''}>
-              <span class="toggle-slider"></span>
-            </div>
-            <span style="font-size:14px; font-weight:600;">啟用開放預約</span>
-          </label>
+        <div class="field" style="background:#f3f4f6; padding:12px; border-radius:6px; display:flex; align-items:center; gap:12px;">
+          <div class="toggle-switch">
+            <input type="checkbox" id="cartEnabled" ${c.enabled !== false ? 'checked' : ''}>
+            <span class="toggle-slider"></span>
+          </div>
+          <label for="cartEnabled" style="margin:0; cursor:pointer; font-size:14px; font-weight:600;">啟用開放預約</label>
         </div>
         
         <div class="field"><label>不開放節次 (點擊反紅)</label>${gridHtml}</div>
@@ -676,10 +749,14 @@
         return;
       }
 
-      const isAdminUser = checkIsAdmin(state.userData);
+      const isSuper = checkIsSuperAdmin(state.userData);
+      const managedLocs = getManagedLocations(state.userData);
       const selectedCart = state.carts.find(c => c.cartId === cartId);
       
-      if (!isAdminUser && selectedCart && selectedCart.allowedClasses) {
+      const isLocAdminForThisCart = selectedCart && managedLocs.includes(selectedCart.location);
+      const isAnyAdminForThisCart = isSuper || isLocAdminForThisCart;
+      
+      if (!isAnyAdminForThisCart && selectedCart && selectedCart.allowedClasses) {
         if (!isClassAllowed(className, selectedCart.allowedClasses)) {
           const suggestedCarts = state.carts.filter(c => c.enabled && isClassAllowed(className, c.allowedClasses));
           state.locationErrorModal = {
@@ -727,7 +804,12 @@
       const sysMin = parseInt(document.getElementById('sysMin').value, 10);
       const sysMax = parseInt(document.getElementById('sysMax').value, 10);
       const sysWeek = parseInt(document.getElementById('sysWeek').value, 10);
-      const sysAdmins = document.getElementById('sysAdmins').value.trim();
+      
+      const newLocAdmins = {};
+      document.querySelectorAll('.locAdminInput').forEach(input => {
+        const val = input.value.trim();
+        if(val) newLocAdmins[input.dataset.loc] = val;
+      });
 
       if (isNaN(sysMin) || isNaN(sysMax) || isNaN(sysWeek) || sysMin < 0 || sysMax < 0 || sysWeek < 0) {
         showToast('設定值必須為大於等於 0 的整數');
@@ -741,9 +823,9 @@
       const btn = document.getElementById('saveSysBtn'); btn.disabled = true;
       try{
         await callServer('saveSettings', {
-          minLeadDays: sysMin, maxBookingDays: sysMax, maxWeeklyPeriods: sysWeek, adminNames: sysAdmins
+          minLeadDays: sysMin, maxBookingDays: sysMax, maxWeeklyPeriods: sysWeek, locationAdmins: newLocAdmins
         });
-        await loadInitialData(); showToast('規則與名單已更新');
+        await loadInitialData(); showToast('全域設定與地點管理員已更新');
       }catch(err){ showToast('更新失敗：' + err.message); btn.disabled = false; }
     });
 
@@ -765,13 +847,15 @@
         await callServer('saveCart', {
           cartId: state.cartModal.cartId || 'cart_' + Date.now(), 
           name: cName,
-          location: document.getElementById('cartLoc').value, colorTheme: document.getElementById('cartTheme').value,
-          enabled: document.getElementById('cartEnabled').checked, reservedFor: document.getElementById('cartReserved').value,
+          location: document.getElementById('cartLoc').value.trim(), 
+          colorTheme: document.getElementById('cartTheme').value,
+          enabled: document.getElementById('cartEnabled').checked, 
+          reservedFor: document.getElementById('cartReserved').value.trim(),
           allowedClasses: document.getElementById('cartAllowedClasses').value.trim(),
           blockedPeriods: Array.from(document.querySelectorAll('.grid-cell.is-blocked')).map(cell => `${cell.dataset.day}_${cell.dataset.period}`)
         });
         state.cartModal = null; await loadInitialData(); showToast('設備已更新');
-      } catch(e) { showToast('儲存失敗'); }
+      } catch(e) { showToast('儲存失敗: ' + e.message); }
     });
   }
 
